@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yira MedSense API Integration Guide</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+      line-height: 1.6;
+      color: #1a1a1a;
+      background: #f8f9fa;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    
+    header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 3rem 2rem;
+      margin: -2rem -2rem 2rem -2rem;
+      border-radius: 0 0 1rem 1rem;
+    }
+    
+    .header-content {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    
+    .logo {
+      width: 60px;
+      height: 60px;
+      flex-shrink: 0;
+    }
+    
+    .header-text {
+      flex: 1;
+    }
+    
+    header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    
+    header p {
+      font-size: 1.2rem;
+      opacity: 0.95;
+    }
+    
+    .nav {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      position: sticky;
+      top: 1rem;
+      z-index: 100;
+    }
+    
+    .nav h3 {
+      margin-bottom: 1rem;
+      color: #667eea;
+    }
+    
+    .nav ul {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    
+    .nav a {
+      color: #667eea;
+      text-decoration: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.25rem;
+      transition: all 0.2s;
+      background: #f0f4ff;
+    }
+    
+    .nav a:hover {
+      background: #667eea;
+      color: white;
+    }
+    
+    .section {
+      background: white;
+      padding: 2rem;
+      border-radius: 0.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    h2 {
+      color: #667eea;
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 3px solid #667eea;
+    }
+    
+    h3 {
+      color: #764ba2;
+      font-size: 1.5rem;
+      margin: 2rem 0 1rem 0;
+    }
+    
+    h4 {
+      color: #555;
+      font-size: 1.2rem;
+      margin: 1.5rem 0 0.75rem 0;
+    }
+    
+    code {
+      background: #f5f7fa;
+      padding: 0.2rem 0.4rem;
+      border-radius: 0.25rem;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 0.9em;
+      color: #e83e8c;
+    }
+    
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    
+    pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+    
+    th, td {
+      text-align: left;
+      padding: 0.75rem;
+      border: 1px solid #e0e0e0;
+    }
+    
+    th {
+      background: #667eea;
+      color: white;
+      font-weight: 600;
+    }
+    
+    tr:nth-child(even) {
+      background: #f8f9fa;
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 1rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-right: 0.5rem;
+    }
+    
+    .badge-post {
+      background: #28a745;
+      color: white;
+    }
+    
+    .badge-get {
+      background: #007bff;
+      color: white;
+    }
+    
+    .badge-status {
+      background: #ffc107;
+      color: #1a1a1a;
+    }
+    
+    .alert {
+      padding: 1rem 1.5rem;
+      border-radius: 0.5rem;
+      margin: 1rem 0;
+      border-left: 4px solid;
+    }
+    
+    .alert-info {
+      background: #e7f3ff;
+      border-color: #007bff;
+      color: #004085;
+    }
+    
+    .alert-warning {
+      background: #fff3cd;
+      border-color: #ffc107;
+      color: #856404;
+    }
+    
+    .alert-success {
+      background: #d4edda;
+      border-color: #28a745;
+      color: #155724;
+    }
+    
+    .highlight {
+      background: #fff8dc;
+      padding: 0.2rem 0.4rem;
+      border-radius: 0.25rem;
+    }
+    
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+      border-top: 1px solid #e0e0e0;
+      margin-top: 3rem;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 1rem;
+      }
+      
+      header {
+        padding: 2rem 1rem;
+        margin: -1rem -1rem 1rem -1rem;
+      }
+      
+      header h1 {
+        font-size: 1.8rem;
+      }
+      
+      .nav ul {
+        flex-direction: column;
+      }
+      
+      .section {
+        padding: 1.5rem;
+      }
+      
+      pre {
+        font-size: 0.8rem;
+        padding: 1rem;
+      }
+      
+      table {
+        font-size: 0.85rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Yira MedSense API</h1>
+      <p>Intelligent Medical Document Parsing API - Integration Guide</p>
+    </header>
+    
+    <nav class="nav">
+      <h3>Quick Navigation</h3>
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#authentication">Authentication</a></li>
+        <li><a href="#parse">Parse Document</a></li>
+        <li><a href="#status">Job Status</a></li>
+        <li><a href="#documents">Get Document</a></li>
+        <li><a href="#webhooks">Webhooks</a></li>
+        <li><a href="#errors">Error Handling</a></li>
+        <li><a href="#best-practices">Best Practices</a></li>
+        <li><a href="#summary">Summary</a></li>
+        <li><a href="#support">Support & Resources</a></li>
+      </ul>
+    </nav>
+
+    <section id="overview" class="section">
+      <h2>Overview</h2>
+      <p>The Yira MedSense API provides tenant-based access to intelligent medical document parsing. Upload documents via API and receive structured data extraction with callback notifications when processing is complete.</p>
+      
+      <h3>Base URLs</h3>
+      <pre><code>Production:  https://your-domain.com/api/v1
+Development: http://localhost:3000/api/v1</code></pre>
+    </section>
+
+    <section id="authentication" class="section">
+      <h2>Authentication</h2>
+      <p>All API requests require an API key provided in the request header:</p>
+      <pre><code>X-API-Key: your_api_key_here</code></pre>
+      <div class="alert alert-info">
+        <strong>Getting Started:</strong> Contact your administrator to obtain an API key for your organization.
+      </div>
+    </section>
+
+    <section id="parse" class="section">
+      <h2>1. Parse Document (Async)</h2>
+      <p>
+        <span class="badge badge-post">POST</span>
+        <code>/parse</code>
+      </p>
+      <p>Upload a medical document for AI-powered parsing. Processing happens asynchronously with callback notification.</p>
+      
+      <h3>Request Headers</h3>
+      <pre><code>X-API-Key: your_api_key_here
+Content-Type: multipart/form-data</code></pre>
+      
+      <h3>Request Body (multipart/form-data)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Required</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>file</code></td>
+            <td>File</td>
+            <td>Yes</td>
+            <td>PDF, PNG, JPG, or JPEG file (max 10MB recommended)</td>
+          </tr>
+          <tr>
+            <td><code>callback_url</code></td>
+            <td>String</td>
+            <td>No</td>
+            <td>Override default webhook URL for this request</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <h3>Response (202 Accepted)</h3>
+      <pre><code>{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "pending",
+  "message": "Document processing started. You will receive a callback when complete.",
+  "callback_url": "https://your-app.com/webhook"
+}</code></pre>
+      
+      <h3>Example Requests</h3>
+      
+      <h4>cURL</h4>
+      <pre><code>curl -X POST https://your-domain.com/api/v1/parse \
+  -H "X-API-Key: your_api_key_here" \
+  -F "file=@medical_report.pdf" \
+  -F "callback_url=https://your-app.com/webhook"</code></pre>
+      
+      <h4>JavaScript/Node.js</h4>
+      <pre><code>const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+formData.append('callback_url', 'https://your-app.com/webhook');
+
+const response = await fetch('https://your-domain.com/api/v1/parse', {
+  method: 'POST',
+  headers: {
+    'X-API-Key': 'your_api_key_here'
+  },
+  body: formData
+});
+
+const result = await response.json();
+console.log('Job ID:', result.job_id);</code></pre>
+      
+      <h4>Python</h4>
+      <pre><code>import requests
+
+files = {'file': open('medical_report.pdf', 'rb')}
+data = {'callback_url': 'https://your-app.com/webhook'}
+headers = {'X-API-Key': 'your_api_key_here'}
+
+response = requests.post(
+    'https://your-domain.com/api/v1/parse',
+    headers=headers,
+    files=files,
+    data=data
+)
+
+result = response.json()
+print(f"Job ID: {result['job_id']}")</code></pre>
+    </section>
+
+    <section id="status" class="section">
+      <h2>2. Get Job Status</h2>
+      <p>
+        <span class="badge badge-get">GET</span>
+        <code>/parse?job_id={job_id}</code>
+      </p>
+      <p>Check the status of a processing job.</p>
+      
+      <h3>Query Parameters</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th>Type</th>
+            <th>Required</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>job_id</code></td>
+            <td>String</td>
+            <td>Yes</td>
+            <td>Job ID returned from parse request</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <h3>Response (200 OK)</h3>
+      <pre><code>{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "document_id": "660e9511-f39c-52e5-b827-557766551111",
+  "error_message": null,
+  "created_at": "2024-01-15T10:30:00Z",
+  "completed_at": "2024-01-15T10:32:15Z",
+  "callback_attempts": 1,
+  "queue_position": 0
+}</code></pre>
+      
+      <h3>Status Values</h3>
+      <ul>
+        <li><span class="badge badge-status">pending</span> Job created, processing not started</li>
+        <li><span class="badge badge-status">processing</span> Document is being processed</li>
+        <li><span class="badge badge-status">completed</span> Processing successful, data available</li>
+        <li><span class="badge badge-status">failed</span> Processing failed (see error_message)</li>
+      </ul>
+      
+      <h3>Example Request</h3>
+      <pre><code>curl -X GET "https://your-domain.com/api/v1/parse?job_id=550e8400-e29b-41d4-a716-446655440000" \
+  -H "X-API-Key: your_api_key_here"</code></pre>
+    </section>
+
+    <section id="documents" class="section">
+      <h2>3. Get Document Data</h2>
+      <p>
+        <span class="badge badge-get">GET</span>
+        <code>/documents?id={document_id}</code>
+      </p>
+      <p>Retrieve parsed data for a completed document.</p>
+      
+      <h3>Query Parameters</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th>Type</th>
+            <th>Required</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>id</code></td>
+            <td>String</td>
+            <td>Yes</td>
+            <td>Document ID from callback or job status</td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <h3>Response (200 OK)</h3>
+      <pre><code>{
+  "id": "660e9511-f39c-52e5-b827-557766551111",
+  "patient_name": "John Doe",
+  "file_name": "discharge_summary.pdf",
+  "document_type": "Discharge Summary",
+  "confidence_score": 92,
+  "created_at": "2024-01-15T10:32:15Z",
+  "structured_data": {
+    "patient": {
+      "name": "John Doe",
+      "dateOfBirth": "1980-05-15",
+      "gender": "Male",
+      "mrNumber": "MRN123456"
+    },
+    "medical": {
+      "diagnosis": "Type 2 Diabetes Mellitus",
+      "medications": [
+        {
+          "name": "Metformin",
+          "dosage": "500mg",
+          "frequency": "Twice daily"
+        }
+      ],
+      "labResults": [
+        {
+          "test": "HbA1c",
+          "measuredValue": "7.2",
+          "unit": "%",
+          "referenceRange": "4.0-6.0",
+          "status": "High"
+        }
+      ]
+    },
+    "billing": {
+      "totalAmount": "₹15,000",
+      "consultationFee": "₹1,500",
+      "paymentStatus": "Paid"
+    }
+  }
+}</code></pre>
+      
+      <h3>Example Request</h3>
+      <pre><code>curl -X GET "https://your-domain.com/api/v1/documents?id=660e9511-f39c-52e5-b827-557766551111" \
+  -H "X-API-Key: your_api_key_here"</code></pre>
+    </section>
+
+    <section id="webhooks" class="section">
+      <h2>Webhook Callbacks</h2>
+      <p>When document processing completes, the system sends a POST request to your callback URL with the complete document data.</p>
+      
+      <h3>Callback Request Headers</h3>
+      <pre><code>Content-Type: application/json
+X-Webhook-Event: document.processing.completed</code></pre>
+      
+      <h3>Success Callback Body</h3>
+      <pre><code>{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "timestamp": "2024-01-15T10:32:15Z",
+  "document": {
+    "id": "660e9511-f39c-52e5-b827-557766551111",
+    "patient_name": "John Doe",
+    "file_name": "discharge_summary.pdf",
+    "document_type": "Discharge Summary",
+    "confidence_score": 92,
+    "created_at": "2024-01-15T10:32:15Z",
+    "structured_data": {
+      "patientInfo": {
+        "name": "John Doe",
+        "dateOfBirth": "1980-05-15",
+        "gender": "Male",
+        "mrNumber": "MRN123456",
+        "contactNumber": "+91-9876543210",
+        "address": "123 Main St, Mumbai, MH 400001"
+      },
+      "clinicalData": {
+        "chiefComplaint": "Chest pain and shortness of breath",
+        "diagnosis": ["Type 2 Diabetes Mellitus", "Hypertension"],
+        "medications": [
+          {
+            "name": "Metformin",
+            "dosage": "500mg",
+            "frequency": "Twice daily",
+            "route": "Oral"
+          }
+        ],
+        "labResults": [
+          {
+            "test": "HbA1c",
+            "measuredValue": "7.2",
+            "unit": "%",
+            "referenceRange": "4.0-6.0",
+            "status": "High",
+            "datePerformed": "2024-01-10"
+          }
+        ],
+        "vitalSigns": {
+          "bloodPressure": "140/90 mmHg",
+          "heartRate": "82 bpm",
+          "temperature": "98.6°F",
+          "respiratoryRate": "16/min"
+        }
+      },
+      "billingInfo": {
+        "totalAmount": "₹15,000",
+        "consultationFee": "₹1,500",
+        "labCharges": "₹3,500",
+        "medicationCharges": "₹5,000",
+        "paymentStatus": "Paid",
+        "insuranceClaim": "₹10,000"
+      },
+      "metadata": {
+        "confidenceScore": 92,
+        "confidenceReason": "All major fields extracted with high certainty.",
+        "pagesProcessed": 5,
+        "processingTimeSeconds": 135
+      }
+    }
+  }
+}</code></pre>
+      
+      <h3>Failure Callback Body</h3>
+      <pre><code>{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "failed",
+  "timestamp": "2024-01-15T10:32:15Z",
+  "document": {
+    "error": "Failed to parse document: unsupported format"
+  }
+}</code></pre>
+      
+      <h3>Webhook Handler Example (Express.js)</h3>
+      <pre><code>app.post('/webhook', express.json(), async (req, res) => {
+  const { job_id, status, document } = req.body;
+  
+  console.log(`Job ${job_id} ${status}`);
+  
+  if (status === 'completed') {
+    // Document data is already in the callback payload
+    console.log('Document ID:', document.id);
+    console.log('Patient:', document.patient_name);
+    console.log('Confidence:', document.confidence_score);
+    
+    // Access structured data directly
+    const patientInfo = document.structured_data.patientInfo;
+    const clinicalData = document.structured_data.clinicalData;
+    
+    // Store in your database, trigger workflows, etc.
+    await saveToDatabase(document);
+    
+    // Optionally fetch again if you need the latest data
+    // const response = await fetch(
+    //   `https://your-domain.com/api/v1/documents?id=${document.id}`,
+    //   { headers: { 'X-API-Key': 'your_api_key_here' } }
+    // );
+  } else {
+    console.error('Processing failed:', document?.error || 'Unknown error');
+  }
+  
+  // Acknowledge receipt
+  res.status(200).json({ received: true });
+});</code></pre>
+
+      <div class="alert alert-info">
+        <strong>Efficiency Tip:</strong> The complete document data is included in the webhook callback, so you don't need to make a separate API call to fetch it. However, the GET /documents endpoint is available if you need to retrieve the data again later.
+      </div>
+    </section>
+
+    <section id="errors" class="section">
+      <h2>Error Responses</h2>
+      
+      <h3>Authentication Errors</h3>
+      <h4>401 Unauthorized</h4>
+      <pre><code>{ "error": "Invalid API key" }</code></pre>
+      
+      <h4>403 Forbidden</h4>
+      <pre><code>{ "error": "Tenant account is inactive" }</code></pre>
+      
+      <h3>Validation Errors</h3>
+      <h4>400 Bad Request</h4>
+      <pre><code>{ "error": "No file provided" }</code></pre>
+      <pre><code>{ "error": "Only PDF, PNG, JPG, and JPEG files are supported" }</code></pre>
+      
+      <h3>Queue Limit Errors</h3>
+      <h4>429 Too Many Requests</h4>
+      <pre><code>{
+  "error": "Processing queue limit reached",
+  "message": "Your basic tier allows 10 concurrent jobs. Currently processing: 10. Please wait for existing jobs to complete.",
+  "queue_limit": 10,
+  "current_queue_size": 10,
+  "tier": "basic"
+}</code></pre>
+      
+      <div class="alert alert-warning">
+        <strong>What to do when you receive a 429:</strong>
+        <ul style="margin-left: 1.5rem; margin-top: 0.5rem;">
+          <li>Wait for existing jobs to complete (check job status endpoint)</li>
+          <li>Implement exponential backoff retry logic (recommended wait: 30-60 seconds)</li>
+          <li>Upgrade your tier for higher concurrent processing capacity</li>
+          <li>Use the <code>queue_position</code> field in responses to estimate wait time</li>
+        </ul>
+      </div>
+      
+      <h3>Server Errors</h3>
+      <h4>500 Internal Server Error</h4>
+      <pre><code>{ "error": "Failed to create processing job" }</code></pre>
+    </section>
+
+    <section class="section">
+      <h2>Processing Queue Limits</h2>
+      <p>The API uses an asynchronous processing queue to handle document parsing. There are no rate limits on API requests, but there are concurrent processing limits:</p>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Tier</th>
+            <th>Concurrent Jobs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Free</td>
+            <td>2 concurrent jobs</td>
+          </tr>
+          <tr>
+            <td>Basic</td>
+            <td>10 concurrent jobs</td>
+          </tr>
+          <tr>
+            <td>Pro</td>
+            <td>50 concurrent jobs</td>
+          </tr>
+          <tr>
+            <td>Enterprise</td>
+            <td>Custom queue capacity</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="alert alert-info">
+        <strong>Queue Management:</strong> Additional requests beyond your concurrent limit will be queued and processed as capacity becomes available. Monitor the <code>queue_position</code> field in job status responses to track progress.
+      </div>
+    </section>
+
+    <section id="best-practices" class="section">
+      <h2>Best Practices</h2>
+      <div class="alert alert-success">
+        <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+          <li><strong>Store job IDs:</strong> Keep track of job_id values to query status later</li>
+          <li><strong>Implement retry logic:</strong> Network issues may cause webhook delivery failures</li>
+          <li><strong>Validate webhook signatures:</strong> In production, validate webhook authenticity (coming soon)</li>
+          <li><strong>Handle timeouts:</strong> Large documents may take 2-5 minutes to process</li>
+          <li><strong>Monitor confidence scores:</strong> Low scores (&lt;60) may require human review</li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="summary" class="section">
+      <h2>Summary</h2>
+      <p>The Yira AI Document Parsing API provides a robust, tenant-based solution for extracting structured medical information from healthcare documents. Key features include:</p>
+      
+      <div style="background-color: #f8f9fa; padding: 1.5rem; border-radius: 8px; margin: 1.5rem 0;">
+        <ul style="margin: 0; padding-left: 1.5rem;">
+          <li><strong>Asynchronous Processing:</strong> Submit documents and receive results via webhook callbacks when processing completes, eliminating timeout issues for large documents.</li>
+          <li><strong>AI-Powered Extraction:</strong> Powered by Google Gemini 2.5 Pro vision model for accurate extraction of patient information, clinical data, lab results with reference values, medications, and billing details.</li>
+          <li><strong>Confidence Scoring:</strong> Every parsed document includes a confidence score (0-100) to help you assess data quality and implement appropriate validation workflows.</li>
+          <li><strong>Tenant Isolation:</strong> Each customer receives a unique API key with isolated data storage and processing queues for security and compliance.</li>
+          <li><strong>Queue Management:</strong> Flexible concurrent processing limits based on subscription tier, with clear error responses when capacity is reached.</li>
+          <li><strong>RESTful Design:</strong> Simple HTTP endpoints with JSON payloads make integration straightforward in any programming language.</li>
+        </ul>
+      </div>
+
+      <p><strong>Getting Started:</strong> Contact our team at <a href="mailto:support@yira.ai">support@yira.ai</a> to obtain your API key and begin integrating intelligent document parsing into your healthcare workflows.</p>
+      
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 8px; margin-top: 2rem;">
+        <h3 style="margin-top: 0; color: white;">Ready to Transform Your Document Processing?</h3>
+        <p style="margin-bottom: 1rem;">Join healthcare organizations already using Yira AI to automate claims processing, reduce manual data entry, and improve accuracy.</p>
+        <a href="mailto:support@yira.ai" style="display: inline-block; background-color: white; color: #667eea; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: 600; margin-top: 0.5rem;">Contact Sales</a>
+      </div>
+    </section>
+
+    <section id="support" class="section">
+      <h2>Support & Resources</h2>
+      <ul>
+        <li><strong>Email:</strong> <a href="mailto:support@yira.ai">support@yira.ai</a></li>
+        <li><strong>Documentation:</strong> <a href="https://docs.yira.ai" target="_blank">https://docs.yira.ai</a></li>
+        <li><strong>Status Page:</strong> <a href="https://status.yira.ai" target="_blank">https://status.yira.ai</a></li>
+      </ul>
+    </section>
+
+    <footer>
+      <p>&copy; 2025 Yira MedSense. All rights reserved.</p>
+      <p style="margin-top: 0.5rem; font-size: 0.9rem;">API Version 1.0.0 | Last Updated: January 15, 2024</p>
+    </footer>
+  </div>
+</body>
+</html>
