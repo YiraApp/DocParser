@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
-  MedsenseClient:
+  medsenseclient:
     build: .
-    container_name: MedsenseClient-container
+    container_name: medsenseclient-container
     ports:
       - "3029:3029"
     environment:
