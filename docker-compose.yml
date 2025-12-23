@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  MedsenseClient:
+    build: .
+    container_name: MedsenseClient-container
+    ports:
+      - "3029:3029"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
