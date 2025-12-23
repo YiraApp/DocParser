@@ -12,11 +12,12 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-COPY --from=builder /app ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/public ./public
 
-RUN npm ci --omit=dev --legacy-peer-deps
-
-ENV PORT=3008
+ENV PORT=3029
 EXPOSE 3029
 
 CMD ["npm", "start"]
