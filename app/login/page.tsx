@@ -42,10 +42,10 @@ export default function LoginPage() {
     const fillCredentials = (role: "admin" | "user") => {
         setSelectedRole(role)
         if (role === "admin") {
-            setEmail("admin@yira.com")
+            setEmail("admin@yira.ai")
             setPassword("admin123")
         } else {
-            setEmail("use@yira.com")
+            setEmail("yirauser@yira.ai")
             setPassword("user123")
         }
     }

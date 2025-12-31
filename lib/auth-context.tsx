@@ -21,8 +21,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const MOCK_USERS = {
-  admin: { email: "admin@yira.com", password: "admin123", role: "admin" as const },
-  user: { email: "use@yira.com", password: "user123", role: "user" as const },
+  admin: { email: "admin@yira.ai", password: "admin123", role: "admin" as const },
+  user: { email: "yirauser@yira.ai", password: "user123", role: "user" as const },
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

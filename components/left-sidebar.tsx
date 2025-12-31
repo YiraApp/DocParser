@@ -493,7 +493,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                 You have reached your upload limit of 5 documents.
                             </p>
                             <p className="text-xs text-foreground">
-                                To upload more documents, please contact our sales team at <a href="mailto:sales@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.
+                                To upload more documents, please contact our sales team at <a href="mailto:contact@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.
                             </p>
                         </DialogDescription>
                     </DialogHeader>
