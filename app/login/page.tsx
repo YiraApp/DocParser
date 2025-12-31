@@ -45,7 +45,7 @@ export default function LoginPage() {
             setEmail("admin@yira.com")
             setPassword("admin123")
         } else {
-            setEmail("user@yira.com")
+            setEmail("use@yira.com")
             setPassword("user123")
         }
     }
