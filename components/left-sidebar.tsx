@@ -237,33 +237,47 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                 throw new Error(errorData.error || "Upload failed")
             }
             const data = await response.json()
-            console.log("[LeftSidebar] Upload success, data received:", data)
-            // Ensure data has all required fields
-            const formattedData = {
-                id: data.id || `doc-${Date.now()}`,
-                fileName: data.fileName || data.file_name || file.name,
-                fileUrl: data.fileUrl || data.file_url,
-                uploadedAt: data.uploadedAt || data.created_at || new Date().toISOString(),
-                documentType: data.documentType || data.document_type || "Medical Document",
-                fields: data.fields || [],
-                summary: data.summary || "",
-                notes: data.notes || [],
-                structuredData: data.structuredData || data.structured_data,
-                confidenceScore: data.confidenceScore || data.confidence_score,
-                healthRecommendations: data.healthRecommendations || data.health_recommendations,
+            console.log("[LeftSidebar] Upload success, document ID:", data.id)
+
+            // Fetch full document data using the returned ID
+            setProgressMessage("Retrieving document data...")
+            const fullDataResponse = await fetch(`/api/parse-document?id=${data.id}`)
+            if (!fullDataResponse.ok) {
+                throw new Error("Failed to fetch parsed document data")
             }
-            console.log("[LeftSidebar] Formatted data:", formattedData)
+            const fullData = await fullDataResponse.json()
+            console.log("[LeftSidebar] Full document data retrieved:", fullData)
+
+            // Format the complete data with proper field mapping
+            const formattedData = {
+                id: fullData.id,
+                fileName: fullData.fileName,
+                fileUrl: fullData.fileUrl,
+                uploadedAt: fullData.uploadedAt,
+                documentType: fullData.documentType,
+                fields: fullData.fields || [],
+                summary: fullData.summary || "",
+                notes: fullData.notes || [],
+                structuredData: fullData.structuredData,
+                confidenceScore: fullData.confidenceScore,
+                healthRecommendations: fullData.healthRecommendations,
+            }
+
+            console.log("[LeftSidebar] Formatted data ready:", formattedData)
             setProgressMessage("Complete!")
             setUploadProgress(100)
             await new Promise((resolve) => setTimeout(resolve, 500))
+
             incrementUploadCount()
             setFile(null)
             setUploadProgress(0)
             setProgressMessage("")
             fetchHistory()
-            onUploadSuccess(data)
+
+            // Single callback with complete data
             onUploadSuccess(formattedData)
         } catch (error) {
+            console.error("[LeftSidebar] Upload error:", error)
             alert(error instanceof Error ? error.message : "Failed to upload. Please try again.")
             setProgressMessage("")
             setUploadProgress(0)
@@ -479,7 +493,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                 You have reached your upload limit of 5 documents.
                             </p>
                             <p className="text-xs text-foreground">
-                                To upload more documents, please contact our sales team at <a href="mailto:sales@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.
+                                To upload more documents, please contact our sales team at <a href="mailto:contact@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.
                             </p>
                         </DialogDescription>
                     </DialogHeader>
