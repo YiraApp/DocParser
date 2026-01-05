@@ -29,14 +29,14 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
     const [isLoadingHistory, setIsLoadingHistory] = useState(true)
     const [showLimitDialog, setShowLimitDialog] = useState(false)
     const { user, incrementUploadCount, isAdmin } = useAuth()
-    const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 5
+    const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
     useEffect(() => {
         fetchHistory()
     }, [])
     const fetchHistory = async () => {
         try {
             setIsLoadingHistory(true)
-            const response = await fetch("/api/documents?limit=5")
+            const response = await fetch("/api/documents?limit=10")
             if (response.ok) {
                 const data = await response.json()
                 setHistory(data.documents || [])
@@ -302,7 +302,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                         className={cn("w-3 h-3", hasReachedLimit ? "text-destructive" : "text-muted-foreground")}
                                     />
                                     <span className={cn("font-medium", hasReachedLimit ? "text-destructive" : "text-foreground")}>
-                                        {hasReachedLimit ? "Upload limit reached (5/5)" : `${user?.uploadCount || 0}/5 uploads used`}
+                                        {hasReachedLimit ? "Upload limit reached (10/10)" : `${user?.uploadCount || 0}/10 uploads used`}
                                     </span>
                                 </div>
                             </Card>
@@ -387,15 +387,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                     </div>
                                 </div>
                                 {/* Upload Progress */}
-                                {isUploading && (
-                                    <div className="space-y-1 p-2 bg-muted/50 rounded-md">
-                                        <Progress value={uploadProgress} className="h-1.5" />
-                                        <div className="flex items-center justify-center gap-1 text-[10px] text-foreground font-medium">
-                                            <Loader2 className="w-3 h-3 animate-spin text-primary" />
-                                            {progressMessage}
-                                        </div>
-                                    </div>
-                                )}
                                 {/* Action Button */}
                                 <Button
                                     onClick={handleUpload}
@@ -405,7 +396,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                     {isUploading ? (
                                         <>
                                             <Loader2 className="w-4 h-4 animate-spin" />
-                                            Processing...
+                                            {progressMessage || "Processing..."}
                                         </>
                                     ) : (
                                         <>
@@ -490,7 +481,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                         <DialogTitle>Upload Limit Reached</DialogTitle>
                         <DialogDescription className="space-y-2 pt-1">
                             <p className="text-xs">
-                                You have reached your upload limit of 5 documents.
+                                You have reached your upload limit of 10 documents.
                             </p>
                             <p className="text-xs text-foreground">
                                 To upload more documents, please contact our sales team at <a href="mailto:contact@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.

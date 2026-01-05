@@ -45,7 +45,7 @@ export default function LoginPage() {
             setEmail("admin@yira.ai")
             setPassword("admin123")
         } else {
-            setEmail("yirauser@yira.ai")
+            setEmail("yirause@yira.ai")
             setPassword("user123")
         }
     }

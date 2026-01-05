@@ -116,7 +116,7 @@ export default function HomePage() {
                                 <span className="text-sm font-medium">{user.email}</span>
                                 {!isAdmin && (
                                     <Badge variant="secondary" className="text-xs">
-                                        {user?.uploadCount || 0}/5
+                                        {user?.uploadCount || 0}/10
                                     </Badge>
                                 )}
                             </div>
@@ -187,7 +187,7 @@ export default function HomePage() {
                                 </p>
                                 {!isAdmin && user && (
                                     <p className="text-sm text-muted-foreground">
-                                        You have <span className="font-semibold text-foreground">{Math.max(0, 5 - (user.uploadCount || 0))}</span> uploads remaining
+                                        You have <span className="font-semibold text-foreground">{Math.max(0, 10 - (user.uploadCount || 0))}</span> uploads remaining
                                     </p>
                                 )}
                             </div>
