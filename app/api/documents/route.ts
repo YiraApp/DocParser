@@ -1,23 +1,60 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createServerClient } from "@/lib/supabase/server"
+
+// Static document database
+const STATIC_DOCUMENTS = [
+  {
+    id: "doc-001",
+    file_name: "Patient_Report_2024.pdf",
+    created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    structured_data: {
+      patientInfo: {
+        fullName: "John Doe",
+        age: 45,
+        gender: "Male",
+        dateOfBirth: "1979-05-15"
+      },
+      documentInfo: {
+        type: "Medical Report",
+        reportDate: "2024-01-10"
+      },
+      providerInfo: {
+        hospitalName: "City Medical Center",
+        department: "Cardiology",
+        doctorName: "Dr. Sarah Smith"
+      }
+    }
+  },
+  {
+    id: "doc-002",
+    file_name: "Lab_Results_2024.pdf",
+    created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    structured_data: {
+      patientInfo: {
+        fullName: "Jane Smith",
+        age: 38,
+        gender: "Female",
+        dateOfBirth: "1986-08-22"
+      },
+      documentInfo: {
+        type: "Lab Report",
+        reportDate: "2024-01-08"
+      },
+      providerInfo: {
+        hospitalName: "Advanced Diagnostics Lab",
+        department: "Laboratory",
+        doctorName: "Dr. Michael Johnson"
+      }
+    }
+  }
+]
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const limit = Number.parseInt(searchParams.get("limit") || "5")
 
-    const supabase = await createServerClient()
-
-    const { data: documents, error } = await supabase
-      .from("documents")
-      .select("id, file_name, created_at, structured_data")
-      .order("created_at", { ascending: false })
-      .limit(limit)
-
-    if (error) {
-      console.error("Database error:", error)
-      return NextResponse.json({ error: "Failed to fetch documents" }, { status: 500 })
-    }
+    // Return static documents up to limit
+    const documents = STATIC_DOCUMENTS.slice(0, limit)
 
     return NextResponse.json({ documents })
   } catch (error) {
