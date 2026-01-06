@@ -1,32 +1,64 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { getDatabase } from "@/lib/db"
+import { getSessionUser } from "@/lib/auth-context"
 
 export async function GET(request: NextRequest) {
   const query = request.nextUrl.searchParams.get("query")
 
-  console.log("[v0] Search request received:", { query })
+  console.log("[SEARCH] Search request received:", { query })
 
-  if (!query) {
-    return NextResponse.json({ documents: [] })
-  }
+  try {
+    const sessionUser = await getSessionUser(request)
+    if (!sessionUser) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
 
-  const supabase = await createClient()
+    if (!query || query.trim().length === 0) {
+      return NextResponse.json({ documents: [] })
+    }
 
-  const { data: documents, error } = await supabase
-    .from("documents")
-    .select("*")
-    .or(
-      `user_name.ilike.%${query}%,file_name.ilike.%${query}%,document_type.ilike.%${query}%,search_text.ilike.%${query}%`,
+    const db = await getDatabase()
+    const documentsCollection = db.collection("documents")
+
+    // Build search filter
+    const searchFilter: any = {
+      user_email: sessionUser.email,
+      $or: [
+        { file_name: { $regex: query, $options: "i" } },
+        { file_type: { $regex: query, $options: "i" } },
+      ],
+    }
+
+    const documents = await documentsCollection
+      .find(searchFilter)
+      .sort({ created_at: -1 })
+      .limit(20)
+      .toArray()
+
+    console.log("[SEARCH] Found documents:", documents.length)
+
+    return NextResponse.json({
+      success: true,
+      documents: documents.map((doc: any) => ({
+        id: doc._id.toString(),
+        file_name: doc.file_name,
+        file_type: doc.file_type,
+        file_size: doc.file_size,
+        created_at: doc.created_at,
+        status: doc.status,
+      })),
+      count: documents.length,
+    })
+  } catch (error) {
+    console.error("[SEARCH] Error:", error)
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Search failed",
+      },
+      { status: 500 }
     )
-    .order("created_at", { ascending: false })
-    .limit(50)
-
-  if (error) {
-    console.error("[v0] Search error:", error)
-    return NextResponse.json({ error: "Failed to search documents", details: error.message }, { status: 500 })
   }
-
-  console.log("[v0] Search results:", { count: documents?.length || 0 })
-
-  return NextResponse.json({ documents: documents || [] })
 }
