@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload: WebhookPayload = await request.json()
 
-    console.log("[WEBHOOK] Payload:", JSON.stringify(payload, null, 2))
+    console.log("[WEBHOOK] Payload job_id:", payload.job_id)
 
     // Validate webhook payload
     if (!payload.success || !payload.job_id) {

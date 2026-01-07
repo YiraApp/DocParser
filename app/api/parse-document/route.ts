@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
 import { getSessionUser } from "@/lib/auth-server"
+import { uploadDocumentToYira } from "@/lib/parse-wrapper"
 import { ObjectId } from "mongodb"
 
 export const runtime = "nodejs"
@@ -8,7 +9,7 @@ export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
 export async function POST(request: NextRequest) {
-        console.log("[UPLOAD] Document upload request received")
+    console.log("[UPLOAD] Document upload request received")
 
     try {
         const sessionUser = await getSessionUser(request)
@@ -20,7 +21,6 @@ export async function POST(request: NextRequest) {
         }
 
         const db = await getDatabase()
-        const documentsCollection = db.collection("documents")
         const accountsCollection = db.collection("accounts")
 
         const formData = await request.formData()
@@ -33,17 +33,6 @@ export async function POST(request: NextRequest) {
         }
 
         console.log("[UPLOAD] Files received:", files.length)
-
-        // Validate file types
-        const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "application/pdf"]
-        for (const file of files) {
-            if (!allowedTypes.includes(file.type)) {
-                return NextResponse.json(
-                    { error: "Only PNG, JPG, JPEG, and PDF files are supported" },
-                    { status: 400 }
-                )
-            }
-        }
 
         // Check user's upload limit
         const account = await accountsCollection.findOne({ email: sessionUser.email })
@@ -66,132 +55,28 @@ export async function POST(request: NextRequest) {
 
         const uploadedDocuments = []
 
-        // Process each file
+        // Process each file using the wrapper
         for (const file of files) {
             console.log("[UPLOAD] Processing file:", file.name)
 
-            const buffer = await file.arrayBuffer()
-            const base64Data = Buffer.from(buffer).toString("base64")
+            const result = await uploadDocumentToYira(file, sessionUser.email, originalFileName)
 
-            // Create initial document record in MongoDB
-            const documentRecord = {
-                user_email: sessionUser.email,
-                file_name: originalFileName,
-                file_type: file.type,
-                file_size: file.size,
-                file_data: base64Data,
-                status: "processing",
-                created_at: new Date(),
-                updated_at: new Date(),
-                parsed_data: null,
-                structured_data: null,
-                webhook_processed: false,
-                job_id: null,
-                report_id: null,
-                error_message: null,
-            }
-
-            const dbResult = await documentsCollection.insertOne(documentRecord)
-            const documentId = dbResult.insertedId.toString()
-
-            console.log("[UPLOAD] Document stored with ID:", documentId)
-
-            // Call Yira API to parse the document
-            const yiraApiUrl = process.env.YIRA_API_URL
-            const yiraApiKey = process.env.YIRA_API_KEY
-            const webhookUrl = process.env.WEBHOOK_URL || "http://localhost:3000/api/webhook"
-
-            if (!yiraApiUrl || !yiraApiKey) {
-                console.error("[UPLOAD] Missing Yira API credentials")
-                await documentsCollection.updateOne(
-                    { _id: new ObjectId(documentId) },
-                    {
-                        $set: {
-                            status: "failed",
-                            error_message: "Missing API credentials",
-                            updated_at: new Date(),
-                        },
-                    }
-                )
-                return NextResponse.json(
-                    { error: "API configuration error" },
-                    { status: 500 }
-                )
-            }
-
-            try {
-                // Prepare form data for Yira API
-                const yiraFormData = new FormData()
-                yiraFormData.append("file", file)
-
-                console.log("[UPLOAD] Calling Yira API:", yiraApiUrl)
-
-                // Call Yira API with webhook URL
-                const yiraResponse = await fetch(
-                    `${yiraApiUrl}?webhook_url=${encodeURIComponent(webhookUrl)}`,
-                    {
-                        method: "POST",
-                        headers: {
-                            "X-API-Key": yiraApiKey,
-                        },
-                        body: yiraFormData,
-                    }
-                )
-
-                console.log("[UPLOAD] Yira API response status:", yiraResponse.status)
-
-                if (!yiraResponse.ok) {
-                    const errorText = await yiraResponse.text()
-                    console.error("[UPLOAD] Yira API error:", errorText)
-                    throw new Error(`Yira API error: ${yiraResponse.statusText}`)
-                }
-
-                const yiraData = await yiraResponse.json()
-
-                console.log("[UPLOAD] Yira API success:", yiraData)
-
-                // Update document with job and report IDs
-                await documentsCollection.updateOne(
-                    { _id: new ObjectId(documentId) },
-                    {
-                        $set: {
-                            job_id: yiraData.job_id,
-                            report_id: yiraData.report_id,
-                            status: "processing",
-                            updated_at: new Date(),
-                        },
-                    }
-                )
-
+            if (result.success) {
                 uploadedDocuments.push({
-                    id: documentId,
+                    id: result.documentId,
                     file_name: originalFileName,
                     file_size: file.size,
-                    job_id: yiraData.job_id,
-                    report_id: yiraData.report_id,
+                    job_id: result.job_id,
+                    report_id: result.report_id,
                     status: "processing",
                 })
-            } catch (apiError) {
-                console.error("[UPLOAD] API call error:", apiError)
-
-                // Update document with error
-                await documentsCollection.updateOne(
-                    { _id: new ObjectId(documentId) },
-                    {
-                        $set: {
-                            status: "failed",
-                            error_message: apiError instanceof Error ? apiError.message : "Unknown API error",
-                            updated_at: new Date(),
-                        },
-                    }
-                )
-
+            } else {
                 uploadedDocuments.push({
-                    id: documentId,
+                    id: undefined,
                     file_name: originalFileName,
                     file_size: file.size,
                     status: "failed",
-                    error: apiError instanceof Error ? apiError.message : "Unknown error",
+                    error: result.error,
                 })
             }
         }
@@ -210,7 +95,9 @@ export async function POST(request: NextRequest) {
         await historyCollection.insertOne({
             user_email: sessionUser.email,
             action: "upload",
-            document_ids: uploadedDocuments.map((d) => new ObjectId(d.id)),
+            document_ids: uploadedDocuments
+                .filter((d) => d.id)
+                .map((d) => new ObjectId(d.id)),
             details: {
                 file_count: files.length,
                 total_size: files.reduce((sum, f) => sum + f.size, 0),
@@ -242,14 +129,6 @@ export async function GET(request: NextRequest) {
     console.log("[UPLOAD] Document retrieval request")
 
     try {
-        const sessionUser = await getSessionUser(request)
-        if (!sessionUser) {
-            return NextResponse.json(
-                { error: "Unauthorized" },
-                { status: 401 }
-            )
-        }
-
         const id = request.nextUrl.searchParams.get("id")
 
         if (!id) {
@@ -261,19 +140,60 @@ export async function GET(request: NextRequest) {
 
         const db = await getDatabase()
         const documentsCollection = db.collection("documents")
+        const jobCollection = db.collection("job_ids")
 
-        const document = await documentsCollection.findOne({
-            _id: new ObjectId(id),
-            user_email: sessionUser.email,
-        })
+        let document = null
+        let isJobRecord = false
+
+        // First try to find in documents collection
+        try {
+            document = await documentsCollection.findOne({
+                _id: new ObjectId(id),
+            })
+        } catch (e) {
+            console.log("[UPLOAD] Invalid ObjectId format for documents collection")
+        }
+
+        // If not found, try job_ids collection
+        if (!document) {
+            try {
+                document = await jobCollection.findOne({
+                    _id: new ObjectId(id),
+                })
+                isJobRecord = true
+                console.log("[UPLOAD] Found job record:", id)
+            } catch (e) {
+                console.log("[UPLOAD] Invalid ObjectId format for job_ids collection")
+            }
+        }
 
         if (!document) {
+            console.log("[UPLOAD] Document not found with id:", id)
             return NextResponse.json(
                 { error: "Document not found" },
                 { status: 404 }
             )
         }
 
+        // Map job record or document record to response format
+        if (isJobRecord) {
+            return NextResponse.json({
+                success: true,
+                id: document._id.toString(),
+                fileName: document.file_name,
+                fileType: "unknown",
+                fileSize: 0,
+                status: document.status,
+                uploadedAt: document.created_at,
+                jobId: document.job_id,
+                reportId: document.report_id,
+                parsedData: document.parsed_data,
+                structuredData: document.parsed_data ? mapParsedDataToStructured(document.parsed_data) : {},
+                errorMessage: null,
+            })
+        }
+
+        // Document collection format
         return NextResponse.json({
             success: true,
             id: document._id.toString(),
@@ -294,5 +214,23 @@ export async function GET(request: NextRequest) {
             { error: "Failed to retrieve document" },
             { status: 500 }
         )
+    }
+}
+
+// Helper function to map parsed_data to structured format
+function mapParsedDataToStructured(parsedData: any) {
+    if (!parsedData) return {}
+
+    return {
+        patient_name: parsedData.patient_name,
+        patient_id: parsedData.patient_id,
+        encounter_date: parsedData.encounter_date,
+        clinician_name: parsedData.clinician_name,
+        lab_results: parsedData.lab_results || [],
+        diagnosis: parsedData.diagnosis,
+        medications: parsedData.medications,
+        procedures: parsedData.procedures,
+        imaging_findings: parsedData.imaging_findings,
+        recommendations: parsedData.recommendations,
     }
 }

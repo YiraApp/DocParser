@@ -1,14 +1,14 @@
 {
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "target": "es5",
+    "lib": [ "dom", "dom.iterable", "esnext" ],
     "allowJs": true,
-    "target": "ES6",
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "bundler",
+    "moduleResolution": "nodenext", // Change to 'nodenext' for better ESM support
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
@@ -19,9 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [ "./*" ] // Add this for alias resolution (e.g., '@/lib/db')
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [ "next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts" ],
+  "exclude": [ "node_modules" ]
 }

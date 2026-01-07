@@ -9,16 +9,19 @@ import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAuth } from "@/lib/auth-context"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+
 interface LeftSidebarProps {
     onUploadSuccess: (document: any) => void
     onHistorySelect?: (document: any) => void
 }
+
 interface HistoryDocument {
     id: string
     file_name: string
     created_at: string
     structured_data: any
 }
+
 export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarProps) {
     const [file, setFile] = useState<File | null>(null)
     const [isDragging, setIsDragging] = useState(false)
@@ -30,9 +33,11 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
     const [showLimitDialog, setShowLimitDialog] = useState(false)
     const { user, incrementUploadCount, isAdmin } = useAuth()
     const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
+
     useEffect(() => {
         fetchHistory()
     }, [])
+
     const fetchHistory = async () => {
         try {
             setIsLoadingHistory(true)
@@ -47,6 +52,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             setIsLoadingHistory(false)
         }
     }
+
     const handleHistoryClick = async (doc: HistoryDocument) => {
         if (!onHistorySelect) return
         try {
@@ -88,6 +94,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             })
         }
     }
+
     const formatDate = (dateString: string) => {
         const date = new Date(dateString)
         const now = new Date()
@@ -100,14 +107,17 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
         if (days < 7) return `${days}d ago`
         return date.toLocaleDateString()
     }
+
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault()
         setIsDragging(true)
     }, [])
+
     const handleDragLeave = useCallback((e: React.DragEvent) => {
         e.preventDefault()
         setIsDragging(false)
     }, [])
+
     const handleDrop = useCallback(
         (e: React.DragEvent) => {
             e.preventDefault()
@@ -123,6 +133,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
         },
         [hasReachedLimit],
     )
+
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (hasReachedLimit) {
             setShowLimitDialog(true)
@@ -140,54 +151,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             setFile(selectedFile)
         }
     }
-    const convertPdfToImages = async (pdfFile: File): Promise<File[]> => {
-        try {
-            setProgressMessage("Loading PDF library...")
-            setUploadProgress(5)
-            const pdfjsLib = await import("pdfjs-dist")
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
-            setProgressMessage("Reading PDF file...")
-            setUploadProgress(10)
-            const arrayBuffer = await pdfFile.arrayBuffer()
-            setProgressMessage("Loading PDF document...")
-            setUploadProgress(15)
-            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-            const images: File[] = []
-            const progressPerPage = 30 / pdf.numPages
-            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                setProgressMessage(`Converting page ${pageNum} of ${pdf.numPages}...`)
-                setUploadProgress(15 + progressPerPage * pageNum)
-                const page = await pdf.getPage(pageNum)
-                const viewport = page.getViewport({ scale: 2.0 })
-                const canvas = document.createElement("canvas")
-                const context = canvas.getContext("2d")
-                if (!context) throw new Error("Could not get canvas context")
-                canvas.width = viewport.width
-                canvas.height = viewport.height
-                await page.render({
-                    canvasContext: context,
-                    viewport: viewport,
-                }).promise
-                const blob = await new Promise<Blob>((resolve, reject) => {
-                    canvas.toBlob(
-                        (b) => {
-                            if (b) resolve(b)
-                            else reject(new Error("Failed to convert canvas to blob"))
-                        },
-                        "image/png",
-                        0.95,
-                    )
-                })
-                const imageFile = new File([blob], `${pdfFile.name.replace(".pdf", "")}_page_${pageNum}.png`, {
-                    type: "image/png",
-                })
-                images.push(imageFile)
-            }
-            return images
-        } catch (error) {
-            throw new Error(`Failed to convert PDF: ${error instanceof Error ? error.message : "Unknown error"}`)
-        }
-    }
+
     const handleUpload = async () => {
         if (hasReachedLimit) {
             setShowLimitDialog(true)
@@ -207,63 +171,90 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
         setUploadProgress(0)
         setProgressMessage("Starting...")
         try {
-            let filesToUpload: File[] = []
-            let isMultiPagePdf = false
-            if (file.type === "application/pdf") {
-                filesToUpload = await convertPdfToImages(file)
-                isMultiPagePdf = filesToUpload.length > 1
-            } else {
-                setUploadProgress(20)
-                filesToUpload = [file]
-            }
-            setProgressMessage(`Uploading ${filesToUpload.length} image(s)...`)
-            setUploadProgress(45)
+            setUploadProgress(20)
+            setProgressMessage("Uploading file...")
             const formData = new FormData()
-            filesToUpload.forEach((file) => {
-                formData.append("files", file)
-            })
-            formData.append("originalFileName", file.name)
-            formData.append("isMultiPage", String(isMultiPagePdf))
-            setProgressMessage("Uploading to server...")
+            formData.append("file", file)
+
             setUploadProgress(50)
-            const response = await fetch("/api/parse-document", {
+
+            // Call the wrapper API with user headers
+            const response = await fetch("/api/upload-wrapper", {
                 method: "POST",
+                headers: {
+                    "x-user-email": user?.email || "anonymous",
+                    "x-user-id": user?.id || "anonymous",
+                    "x-user-role": user?.role || "user",
+                },
                 body: formData,
             })
+
             setProgressMessage("Processing with AI...")
             setUploadProgress(75)
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: "Upload failed" }))
                 throw new Error(errorData.error || "Upload failed")
             }
+
             const data = await response.json()
-            console.log("[LeftSidebar] Upload success, document ID:", data.id)
+            console.log("[LeftSidebar] Upload success, ID:", data.id)
 
             // Fetch full document data using the returned ID
             setProgressMessage("Retrieving document data...")
             const fullDataResponse = await fetch(`/api/parse-document?id=${data.id}`)
             if (!fullDataResponse.ok) {
-                throw new Error("Failed to fetch parsed document data")
+                const errorMsg = await fullDataResponse.json().catch(() => ({ error: "Document retrieval failed" }))
+                console.warn("[LeftSidebar] Document not yet available, using partial data:", errorMsg)
+                // Use partial data from upload response instead of failing
+                const partialData = {
+                    id: data.id,
+                    fileName: file.name,
+                    fileUrl: undefined,
+                    uploadedAt: new Date().toISOString(),
+                    documentType: "Medical Document",
+                    fields: [],
+                    summary: "",
+                    notes: [],
+                    structuredData: {},
+                    confidenceScore: undefined,
+                    healthRecommendations: undefined,
+                    jobId: data.job_id,
+                    reportId: data.report_id,
+                    status: "processing",
+                }
+                setProgressMessage("Complete!")
+                setUploadProgress(100)
+                await new Promise((resolve) => setTimeout(resolve, 500))
+                incrementUploadCount()
+                setFile(null)
+                setUploadProgress(0)
+                setProgressMessage("")
+                fetchHistory()
+                onUploadSuccess(partialData)
+                return
             }
+
             const fullData = await fullDataResponse.json()
             console.log("[LeftSidebar] Full document data retrieved:", fullData)
 
-            // Format the complete data with proper field mapping
+            // Format the complete data
             const formattedData = {
                 id: fullData.id,
-                fileName: fullData.fileName,
+                fileName: fullData.fileName || file.name,
                 fileUrl: fullData.fileUrl,
                 uploadedAt: fullData.uploadedAt,
-                documentType: fullData.documentType,
+                documentType: fullData.documentType || "Medical Document",
                 fields: fullData.fields || [],
                 summary: fullData.summary || "",
                 notes: fullData.notes || [],
                 structuredData: fullData.structuredData,
                 confidenceScore: fullData.confidenceScore,
                 healthRecommendations: fullData.healthRecommendations,
+                jobId: fullData.jobId,
+                reportId: fullData.reportId,
             }
 
-            console.log("[LeftSidebar] Formatted data ready:", formattedData)
             setProgressMessage("Complete!")
             setUploadProgress(100)
             await new Promise((resolve) => setTimeout(resolve, 500))
@@ -484,7 +475,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                 You have reached your upload limit of 10 documents.
                             </p>
                             <p className="text-xs text-foreground">
-                                To upload more documents, please contact our sales team at <a href="mailto:contact@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.
+                                To upload more documents, please contact our sales team at <a href="mailto:sales@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.
                             </p>
                         </DialogDescription>
                     </DialogHeader>
