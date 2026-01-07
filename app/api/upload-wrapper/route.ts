@@ -19,7 +19,12 @@ export async function POST(req: NextRequest) {
             ? (formData.get('file') as File).name 
             : 'unknown'
 
-        const externalApiUrl = 'https://api.yira.ai/v1/tenants/testing-id-1-1ae6/projects/bd760a58-2d44-4089-b471-cc046ea0a70d/reports?webhook_url=https://yirahealthcampapidev.azurewebsites.net/api/Account/webhooktest'
+        // Build external API URL with webhook URL as query parameter
+        const baseUrl = 'https://api.yira.ai/v1/tenants/testing-id-1-1ae6/projects/bd760a58-2d44-4089-b471-cc046ea0a70d/reports'
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        const webhookUrl = `${appUrl}/api/webhook`
+        
+        const externalApiUrl = `${baseUrl}?webhook_url=${encodeURIComponent(webhookUrl)}`
 
         const externalResponse = await fetch(externalApiUrl, {
             method: 'POST',

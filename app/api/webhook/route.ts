@@ -1,77 +1,87 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
-import { ObjectId } from "mongodb"
 
 interface WebhookPayload {
-  success: boolean
   job_id: string
   report_id: string
+  tenant_id: string
+  project_id: string
   status: string
-  message: string
-  files_uploaded: number
-  total_size_mb: number
-  webhook_url: string
   timestamp: string
-  data?: {
-    extracted_text?: string
-    extracted_fields?: Record<string, any>
-    structured_output?: Record<string, any>
-    confidence_score?: number
-    [key: string]: any
-  }
+  parsed_data?: Record<string, any>
+  fraud_detection?: Record<string, any>
+  [key: string]: any
 }
 
 export async function POST(request: NextRequest) {
-  console.log("[WEBHOOK] Received callback")
+  console.log("[WEBHOOK] Received callback from external API")
 
   try {
     const payload: WebhookPayload = await request.json()
 
     console.log("[WEBHOOK] Payload job_id:", payload.job_id)
+    console.log("[WEBHOOK] Payload status:", payload.status)
 
-    // Validate webhook payload
-    if (!payload.success || !payload.job_id) {
+    // Validate webhook payload - only require job_id and status
+    if (!payload.job_id) {
+      console.error("[WEBHOOK] Missing job_id")
       return NextResponse.json(
-        { error: "Invalid webhook payload" },
+        { error: "Invalid webhook payload - missing job_id" },
         { status: 400 }
       )
     }
 
     const db = await getDatabase()
     const webhookCollection = db.collection("webhook_responses")
+    const jobCollection = db.collection("job_ids")
 
     // Extract parsed data from webhook
     const webhookRecord = {
       job_id: payload.job_id,
       report_id: payload.report_id,
+      tenant_id: payload.tenant_id,
+      project_id: payload.project_id,
       status: payload.status,
-      message: payload.message,
-      files_uploaded: payload.files_uploaded,
-      total_size_mb: payload.total_size_mb,
-      webhook_url: payload.webhook_url,
-      received_at: new Date(),
       timestamp: payload.timestamp,
+      received_at: new Date(),
       processed: false,
       document_id: null,
-      // Store parsed data from the API response
-      parsed_data: payload.data ? {
-        extracted_text: payload.data.extracted_text,
-        extracted_fields: payload.data.extracted_fields,
-        structured_output: payload.data.structured_output,
-        confidence_score: payload.data.confidence_score,
-      } : null,
+      // Store all parsed data from the API response
+      parsed_data: payload.parsed_data || null,
+      fraud_detection: payload.fraud_detection || null,
     }
 
-    const result = await webhookCollection.insertOne(webhookRecord)
+    const webhookResult = await webhookCollection.insertOne(webhookRecord)
 
-    console.log("[WEBHOOK] Stored with ID:", result.insertedId)
-    console.log("[WEBHOOK] Job ID:", payload.job_id)
+    console.log("[WEBHOOK] Stored webhook with ID:", webhookResult.insertedId)
+
+    // Update job_ids collection with parsed data and status
+    const jobUpdateResult = await jobCollection.updateOne(
+      { job_id: payload.job_id },
+      {
+        $set: {
+          parsed_data: payload.parsed_data || null,
+          structured_data: payload.parsed_data || null,
+          fraud_detection: payload.fraud_detection || null,
+          status: payload.status || "completed",
+          updated_at: new Date(),
+        }
+      }
+    )
+
+    console.log("[WEBHOOK] Updated job_ids for job_id:", payload.job_id)
+    console.log("[WEBHOOK] Matched documents:", jobUpdateResult.matchedCount)
+    console.log("[WEBHOOK] Modified documents:", jobUpdateResult.modifiedCount)
+
+    if (jobUpdateResult.matchedCount === 0) {
+      console.warn("[WEBHOOK] No matching job found in job_ids collection for job_id:", payload.job_id)
+    }
 
     return NextResponse.json(
       {
         success: true,
         message: "Webhook received and processed",
-        id: result.insertedId.toString(),
+        job_id: payload.job_id,
       },
       { status: 200 }
     )
@@ -113,6 +123,7 @@ export async function GET(request: NextRequest) {
           status: webhook.status,
           received_at: webhook.received_at,
           parsed_data: webhook.parsed_data,
+          fraud_detection: webhook.fraud_detection,
         },
       })
     }
