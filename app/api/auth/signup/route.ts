@@ -1,75 +1,85 @@
-import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
-import { getDb } from '@/lib/mongodb';
-import { getSessionUser } from '@/lib/auth-server';  // <-- Updated import
+import { type NextRequest, NextResponse } from "next/server";
+import { getDatabase } from "@/lib/db";
+import bcrypt from "bcryptjs";
 
-export async function POST(req: NextRequest) {
+// Validate phone number - 10 digits
+function validatePhoneNumber(phone: string): boolean {
+    const phoneRegex = /^\d{10}$/;
+    return phoneRegex.test(phone.replace(/\D/g, ""));
+}
+
+export async function POST(request: NextRequest) {
     try {
-        const { email, password, role } = await req.json();
-        // Validate input
-        if (!email || !password || !role) {
-            return NextResponse.json({ error: 'Email, password, and role are required' }, { status: 400 });
-        }
-        if (role !== 'admin' && role !== 'user') {
-            return NextResponse.json({ error: 'Invalid role. Must be "admin" or "user"' }, { status: 400 });
-        }
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
-        }
-        // Validate password strength
-        if (password.length < 6) {
-            return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
-        }
-        // Check if user is admin for admin account creation
-        const session = await getSessionUser(req);
-        const isAdminUser = session && session.isAdmin;
-        // Only admins can create admin accounts
-        if (role === 'admin' && !isAdminUser) {
+        const { email, password, name, phoneNumber, role } = await request.json();
+
+        // Validation
+        if (!email || !password) {
             return NextResponse.json(
-                { error: 'Only admins can create admin accounts' },
-                { status: 403 }
+                { error: "Email and password are required" },
+                { status: 400 }
             );
         }
-        // Connect to database
-        const db = await getDb();
 
-        if (!db) {
-            throw new Error('Database connection failed');
+        if (!name || name.trim().length === 0) {
+            return NextResponse.json(
+                { error: "Name is required" },
+                { status: 400 }
+            );
         }
-        const usersCollection = db.collection('users');
+
+        if (!phoneNumber || !validatePhoneNumber(phoneNumber)) {
+            return NextResponse.json(
+                { error: "Valid 10-digit phone number is required" },
+                { status: 400 }
+            );
+        }
+
+        if (password.length < 6) {
+            return NextResponse.json(
+                { error: "Password must be at least 6 characters" },
+                { status: 400 }
+            );
+        }
+
+        const db = await getDatabase();
+        const usersCollection = db.collection("users");
+
         // Check if user already exists
-        const existingUser = await usersCollection.findOne({ email });
+        const existingUser = await usersCollection.findOne({ email: email.toLowerCase() });
         if (existingUser) {
-            return NextResponse.json({ error: 'User already exists' }, { status: 409 });
+            return NextResponse.json(
+                { error: "Email already registered" },
+                { status: 409 }
+            );
         }
+
         // Hash password
-        const hashedPassword = bcrypt.hashSync(password, 10);
-        // Insert new user
-        const result = await usersCollection.insertOne({
-            email,
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Create user document
+        const newUser = {
+            email: email.toLowerCase(),
             password: hashedPassword,
-            role,
+            name: name.trim(),
+            phoneNumber: phoneNumber.replace(/\D/g, ""),
+            role: role || "user",
             uploadCount: 0,
             createdAt: new Date(),
+            updatedAt: new Date(),
+        };
+
+        // Insert user
+        const result = await usersCollection.insertOne(newUser);
+
+        return NextResponse.json({
+            success: true,
+            message: "Account created successfully",
+            userId: result.insertedId.toString(),
         });
-        if (!result.insertedId) {
-            throw new Error('Failed to insert user');
-        }
-        return NextResponse.json(
-            {
-                success: true,
-                userId: result.insertedId.toString(),
-                message: `${role.charAt(0).toUpperCase() + role.slice(1)} account created successfully`
-            },
-            { status: 201 }
-        );
     } catch (error) {
-        console.error('[Signup API] Error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        console.error("[SIGNUP] Error:", error);
         return NextResponse.json(
-            { error: 'Signup failed', details: errorMessage },
+            { error: "Failed to create account" },
             { status: 500 }
         );
     }

@@ -34,9 +34,35 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
     const { user, incrementUploadCount, isAdmin } = useAuth()
     const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
 
+    // Fetch recent documents on component mount and when user changes
     useEffect(() => {
-        fetchHistory()
-    }, [])
+        const fetchRecentDocuments = async () => {
+            if (!user) return
+
+            setIsLoadingHistory(true)
+            try {
+                const response = await fetch("/api/recent-documents?limit=5", {
+                    credentials: "include",
+                })
+
+                if (!response.ok) {
+                    console.error("[SIDEBAR] Failed to fetch recent documents")
+                    setIsLoadingHistory(false)
+                    return
+                }
+
+                const data = await response.json()
+                // Fix: Set history state directly instead of calling the function
+                setHistory(data.documents || [])
+            } catch (err) {
+                console.error("[SIDEBAR] Fetch error:", err)
+            } finally {
+                setIsLoadingHistory(false)
+            }
+        }
+
+        fetchRecentDocuments()
+    }, [user])
 
     const fetchHistory = async () => {
         try {
@@ -175,9 +201,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             setProgressMessage("Uploading file...")
             const formData = new FormData()
             formData.append("file", file)
-
             setUploadProgress(50)
-
             // Call the wrapper API with user headers
             const response = await fetch("/api/upload-wrapper", {
                 method: "POST",
@@ -188,18 +212,14 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                 },
                 body: formData,
             })
-
             setProgressMessage("Processing with AI...")
             setUploadProgress(75)
-
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: "Upload failed" }))
                 throw new Error(errorData.error || "Upload failed")
             }
-
             const data = await response.json()
             console.log("[LeftSidebar] Upload success, ID:", data.id)
-
             // Fetch full document data using the returned ID
             setProgressMessage("Retrieving document data...")
             const fullDataResponse = await fetch(`/api/parse-document?id=${data.id}`)
@@ -234,10 +254,8 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                 onUploadSuccess(partialData)
                 return
             }
-
             const fullData = await fullDataResponse.json()
             console.log("[LeftSidebar] Full document data retrieved:", fullData)
-
             // Format the complete data
             const formattedData = {
                 id: fullData.id,
@@ -254,17 +272,14 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                 jobId: fullData.jobId,
                 reportId: fullData.reportId,
             }
-
             setProgressMessage("Complete!")
             setUploadProgress(100)
             await new Promise((resolve) => setTimeout(resolve, 500))
-
             incrementUploadCount()
             setFile(null)
             setUploadProgress(0)
             setProgressMessage("")
             fetchHistory()
-
             // Single callback with complete data
             onUploadSuccess(formattedData)
         } catch (error) {
@@ -276,6 +291,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             setIsUploading(false)
         }
     }
+
     return (
         <>
             <aside className="w-80 h-[calc(100vh-64px)] overflow-hidden bg-gradient-to-b from-background to-muted/10 border-r border-border/40 flex flex-col z-10">
@@ -445,24 +461,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                 </Card>
                             )}
                         </div>
-                        {/* Feature Cards */}
-                        {/*<div className="space-y-1 pt-1">*/}
-                        {/* <Card className="border border-border/30 bg-gradient-to-br from-accent/5 to-transparent py-2 min-h-[40px]">*/}
-                        {/* <div className="p-2 flex items-start gap-2">*/}
-                        {/* <div className="w-6 h-6 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">*/}
-                        {/* <FileText className="w-3 h-3 text-accent" />*/}
-                        {/* </div>*/}
-                        {/* <div className="space-y-1">*/}
-                        {/* <h4 className="text-xs font-semibold text-foreground">*/}
-                        {/* Health Insights*/}
-                        {/* </h4>*/}
-                        {/* <p className="text-xs text-muted-foreground leading-tight">*/}
-                        {/* Get personalized recommendations and warnings*/}
-                        {/* </p>*/}
-                        {/* </div>*/}
-                        {/* </div>*/}
-                        {/* </Card>*/}
-                        {/*</div>*/}
                     </div>
                 </ScrollArea>
             </aside>

@@ -1,236 +1,344 @@
-import { type NextRequest, NextResponse } from "next/server"
+﻿import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
 import { getSessionUser } from "@/lib/auth-server"
-import { uploadDocumentToYira } from "@/lib/parse-wrapper"
-import { ObjectId } from "mongodb"
 
-export const runtime = "nodejs"
-export const maxDuration = 300
-export const dynamic = "force-dynamic"
+// Helper functions
+function mapParsedDataToStructured(parsedData: any) {
+    if (!parsedData) return {}
 
-export async function POST(request: NextRequest) {
-    console.log("[UPLOAD] Document upload request received")
-
-    try {
-        const sessionUser = await getSessionUser(request)
-        if (!sessionUser) {
-            return NextResponse.json(
-                { error: "Unauthorized: Please log in" },
-                { status: 401 }
-            )
+    const getPatientId = (patientIdField: any): string => {
+        if (!patientIdField) return ""
+        if (typeof patientIdField === "string") return patientIdField
+        if (typeof patientIdField === "object") {
+            return patientIdField.mr_no || patientIdField.reg_no || ""
         }
+        return String(patientIdField)
+    }
 
-        const db = await getDatabase()
-        const accountsCollection = db.collection("accounts")
-
-        const formData = await request.formData()
-        const files = formData.getAll("files") as File[]
-        const originalFileName = formData.get("originalFileName") as string
-
-        if (!files || files.length === 0) {
-            console.log("[UPLOAD] ERROR: No files provided")
-            return NextResponse.json({ error: "No files provided" }, { status: 400 })
-        }
-
-        console.log("[UPLOAD] Files received:", files.length)
-
-        // Check user's upload limit
-        const account = await accountsCollection.findOne({ email: sessionUser.email })
-        if (!account) {
-            return NextResponse.json(
-                { error: "Account not found" },
-                { status: 404 }
-            )
-        }
-
-        // If user role is not admin, check upload limit
-        if (account.role === "user" && account.upload_limit !== null) {
-            if (account.upload_count >= account.upload_limit) {
-                return NextResponse.json(
-                    { error: `Upload limit (${account.upload_limit}) reached` },
-                    { status: 429 }
-                )
-            }
-        }
-
-        const uploadedDocuments = []
-
-        // Process each file using the wrapper
-        for (const file of files) {
-            console.log("[UPLOAD] Processing file:", file.name)
-
-            const result = await uploadDocumentToYira(file, sessionUser.email, originalFileName)
-
-            if (result.success) {
-                uploadedDocuments.push({
-                    id: result.documentId,
-                    file_name: originalFileName,
-                    file_size: file.size,
-                    job_id: result.job_id,
-                    report_id: result.report_id,
-                    status: "processing",
-                })
-            } else {
-                uploadedDocuments.push({
-                    id: undefined,
-                    file_name: originalFileName,
-                    file_size: file.size,
-                    status: "failed",
-                    error: result.error,
+    const labResults: { test: any; measuredValue: any; unit: any; referenceRange: any; status: any; notes: null }[] = []
+    if (parsedData.lab_results && Array.isArray(parsedData.lab_results)) {
+        parsedData.lab_results.forEach((exam: any) => {
+            if (exam.tests && Array.isArray(exam.tests)) {
+                exam.tests.forEach((test: any) => {
+                    labResults.push({
+                        test: test.test_name,
+                        measuredValue: test.result,
+                        unit: test.unit,
+                        referenceRange: test.reference_range,
+                        status: test.status,
+                        notes: null,
+                    })
                 })
             }
-        }
-
-        // Update account upload count
-        if (account.role === "user") {
-            await accountsCollection.updateOne(
-                { email: sessionUser.email },
-                { $inc: { upload_count: files.length } }
-            )
-            console.log("[UPLOAD] Updated upload count for:", sessionUser.email)
-        }
-
-        // Log upload activity
-        const historyCollection = db.collection("upload_history")
-        await historyCollection.insertOne({
-            user_email: sessionUser.email,
-            action: "upload",
-            document_ids: uploadedDocuments
-                .filter((d) => d.id)
-                .map((d) => new ObjectId(d.id)),
-            details: {
-                file_count: files.length,
-                total_size: files.reduce((sum, f) => sum + f.size, 0),
-            },
-            created_at: new Date(),
         })
+    }
 
-        return NextResponse.json(
-            {
-                success: true,
-                documents: uploadedDocuments,
-                filesProcessed: files.length,
-                message: "Document(s) sent for processing",
-            },
-            { status: 201 }
-        )
-    } catch (error) {
-        console.error("[UPLOAD] ERROR:", error)
-        return NextResponse.json(
-            {
-                error: error instanceof Error ? error.message : "Unknown error occurred",
-            },
-            { status: 500 }
-        )
+    return {
+        patientInfo: {
+            fullName: parsedData.patient_name || "",
+            dateOfBirth: null,
+            age: null,
+            gender: null,
+            medicalRecordNumber: getPatientId(parsedData.patient_id),
+        },
+        providerInfo: {
+            hospitalName: null,
+            department: null,
+            doctorName: parsedData.clinician_name || "",
+        },
+        clinicalData: {
+            diagnosis: parsedData.diagnosis || null,
+            secondaryDiagnoses: [],
+            medications: parsedData.medications || [],
+            labResults: labResults,
+            vitalSigns: extractVitalSigns(parsedData),
+            procedures: parsedData.procedures || null,
+            imagingFindings: parsedData.imaging_findings || null,
+        },
+        documentInfo: {
+            type: "Medical Report",
+            reportDate: parsedData.encounter_date || null,
+        },
+        documentSummary: buildDocumentSummary(parsedData),
     }
 }
 
-export async function GET(request: NextRequest) {
-    console.log("[UPLOAD] Document retrieval request")
+function extractVitalSigns(parsedData: any) {
+    const vitalSigns: Record<string, any> = {}
+    if (parsedData.lab_results && Array.isArray(parsedData.lab_results)) {
+        parsedData.lab_results.forEach((exam: any) => {
+            if (exam.examination_name === "Vitals" && exam.tests) {
+                exam.tests.forEach((test: any) => {
+                    const testName = test.test_name.toLowerCase()
+                    if (testName.includes("blood pressure")) {
+                        vitalSigns.bloodPressure = test.result
+                    } else if (testName.includes("heart rate")) {
+                        vitalSigns.heartRate = test.result
+                    } else if (testName.includes("temperature")) {
+                        vitalSigns.temperature = test.result
+                    } else if (testName.includes("oxygen saturation")) {
+                        vitalSigns.oxygenSaturation = test.result
+                    }
+                })
+            }
+        })
+    }
+    return vitalSigns
+}
 
+function buildDocumentSummary(parsedData: any): string {
+    const lines: string[] = []
+    if (parsedData.patient_name) lines.push(`Patient: ${parsedData.patient_name}`)
+    if (parsedData.encounter_date) lines.push(`Encounter Date: ${parsedData.encounter_date}`)
+    if (parsedData.clinician_name) lines.push(`Clinician: ${parsedData.clinician_name}`)
+    if (parsedData.diagnosis) lines.push(`Diagnosis: ${parsedData.diagnosis}`)
+    return lines.join("\n")
+}
+
+function extractFieldsFromParsedData(parsedData: any) {
+    const fields: Array<{ label: string; value: string }> = []
+    const addedFieldLabels = new Set<string>()
+
+    // Skip patient name here since it's displayed in patientInfo.fullName
+    // if (parsedData.patient_name) {
+    //     fields.push({
+    //         label: "Patient Name",
+    //         value: safeStringify(parsedData.patient_name),
+    //     })
+    //     addedFieldLabels.add("patient name")
+    // }
+
+    if (parsedData.patient_id) {
+        if (typeof parsedData.patient_id === "string") {
+            fields.push({
+                label: "Patient ID",
+                value: safeStringify(parsedData.patient_id),
+            })
+            addedFieldLabels.add("patient id")
+        }
+    }
+
+    if (parsedData.encounter_date) {
+        fields.push({
+            label: "Encounter Date",
+            value: safeStringify(parsedData.encounter_date),
+        })
+        addedFieldLabels.add("encounter date")
+    }
+
+    if (parsedData.clinician_name) {
+        fields.push({
+            label: "Clinician Name",
+            value: safeStringify(parsedData.clinician_name),
+        })
+        addedFieldLabels.add("clinician name")
+    }
+
+    if (parsedData.lab_results && Array.isArray(parsedData.lab_results)) {
+        parsedData.lab_results.forEach((exam: any) => {
+            if (exam.tests && Array.isArray(exam.tests)) {
+                exam.tests.forEach((test: any) => {
+                    const fieldLabel = `${exam.examination_name} - ${test.test_name}`
+                    // Only add if not already added
+                    if (!addedFieldLabels.has(fieldLabel.toLowerCase())) {
+                        fields.push({
+                            label: fieldLabel,
+                            value: safeStringify(`${test.result} ${test.unit} (${test.status})`),
+                        })
+                        addedFieldLabels.add(fieldLabel.toLowerCase())
+                    }
+                })
+            }
+        })
+    }
+
+    return fields
+}
+
+function safeStringify(value: any): string {
+    if (value === null || value === undefined) return ""
+    if (typeof value === "string") return value
+    if (typeof value === "object") {
+        if (Array.isArray(value)) {
+            return value.map(v => safeStringify(v)).join(", ")
+        }
+        if (value.mr_no) return String(value.mr_no)
+        if (value.reg_no) return String(value.reg_no)
+        return JSON.stringify(value)
+    }
+    return String(value)
+}
+
+// **GET - Fetch document by job_id from documents collection**
+export async function GET(request: NextRequest) {
     try {
         const id = request.nextUrl.searchParams.get("id")
 
+        console.log("[PARSE-DOCUMENT GET] Request ID:", id)
+
         if (!id) {
-            return NextResponse.json(
-                { error: "No document ID provided" },
-                { status: 400 }
-            )
+            console.error("[PARSE-DOCUMENT GET] ❌ Missing ID parameter")
+            return NextResponse.json({ error: "Missing document ID" }, { status: 400 })
+        }
+
+        const sessionUser = await getSessionUser(request)
+        if (!sessionUser) {
+            console.error("[PARSE-DOCUMENT GET] ❌ Not authorized")
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
 
         const db = await getDatabase()
         const documentsCollection = db.collection("documents")
-        const jobCollection = db.collection("job_ids")
+        const webhookCollection = db.collection("webhook_responses")
 
-        let document = null
-        let isJobRecord = false
+        // **Priority 1: Search documents collection by job_id**
+        console.log("[PARSE-DOCUMENT GET] 🔍 Searching documents collection for job_id:", id)
 
-        // First try to find in documents collection
-        try {
-            document = await documentsCollection.findOne({
-                _id: new ObjectId(id),
-            })
-        } catch (e) {
-            console.log("[UPLOAD] Invalid ObjectId format for documents collection")
-        }
+        let doc: any = await documentsCollection.findOne({ job_id: id })
 
-        // If not found, try job_ids collection
-        if (!document) {
-            try {
-                document = await jobCollection.findOne({
-                    _id: new ObjectId(id),
-                })
-                isJobRecord = true
-                console.log("[UPLOAD] Found job record:", id)
-            } catch (e) {
-                console.log("[UPLOAD] Invalid ObjectId format for job_ids collection")
+        if (doc) {
+            console.log("[PARSE-DOCUMENT GET] ✅ Found in documents collection")
+        } else {
+            console.log("[PARSE-DOCUMENT GET] ⚠️ Not found in documents, trying webhook_responses...")
+
+            // **Priority 2: Search webhook_responses as fallback**
+            const webhook = await webhookCollection.findOne({ job_id: id })
+
+            if (webhook && webhook.parsed_data) {
+                console.log("[PARSE-DOCUMENT GET] ✅ Found in webhook_responses, transforming...")
+
+                // Transform webhook data to document format
+                doc = {
+                    job_id: webhook.job_id,
+                    file_name: `Document_${webhook.job_id}`,
+                    document_type: "Medical Report",
+                    status: webhook.status || "completed",
+                    parsed_data: webhook.parsed_data,
+                    created_at: webhook.received_at || new Date(),
+                    confidence_score: 85,
+                }
+            } else {
+                console.error("[PARSE-DOCUMENT GET] ❌ Document not found in any collection")
+                return NextResponse.json(
+                    { error: "Document not found" },
+                    { status: 404 }
+                )
             }
         }
 
-        if (!document) {
-            console.log("[UPLOAD] Document not found with id:", id)
-            return NextResponse.json(
-                { error: "Document not found" },
-                { status: 404 }
-            )
+        // **Ensure transformations are applied**
+        if (doc.parsed_data && !doc.structured_data) {
+            console.log("[PARSE-DOCUMENT GET] 🔄 Transforming parsed_data to structured_data")
+            doc.structured_data = mapParsedDataToStructured(doc.parsed_data)
+            doc.fields = extractFieldsFromParsedData(doc.parsed_data)
+            doc.summary = buildDocumentSummary(doc.parsed_data)
         }
 
-        // Map job record or document record to response format
-        if (isJobRecord) {
-            return NextResponse.json({
-                success: true,
-                id: document._id.toString(),
-                fileName: document.file_name,
-                fileType: "unknown",
-                fileSize: 0,
-                status: document.status,
-                uploadedAt: document.created_at,
-                jobId: document.job_id,
-                reportId: document.report_id,
-                parsedData: document.parsed_data,
-                structuredData: document.parsed_data ? mapParsedDataToStructured(document.parsed_data) : {},
-                errorMessage: null,
-            })
+        // **Format response**
+        const formattedData = {
+            id: doc.job_id || doc._id?.toString() || id,
+            fileName: doc.file_name || "Untitled Document",
+            fileUrl: doc.file_url || undefined,
+            uploadedAt: doc.created_at?.toISOString?.() || new Date().toISOString(),
+            documentType: doc.document_type || "Medical Document",
+            fields: doc.fields || [],
+            summary: doc.summary || "",
+            notes: doc.notes || [],
+            structuredData: doc.structured_data || {},
+            confidenceScore: doc.confidence_score || undefined,
+            healthRecommendations: doc.health_recommendations || undefined,
         }
 
-        // Document collection format
-        return NextResponse.json({
-            success: true,
-            id: document._id.toString(),
-            fileName: document.file_name,
-            fileType: document.file_type,
-            fileSize: document.file_size,
-            status: document.status,
-            uploadedAt: document.created_at,
-            parsedData: document.parsed_data,
-            structuredData: document.structured_data,
-            jobId: document.job_id,
-            reportId: document.report_id,
-            errorMessage: document.error_message,
-        })
+        console.log("[PARSE-DOCUMENT GET] ✅ Returning formatted data")
+        return NextResponse.json(formattedData)
     } catch (error) {
-        console.error("[UPLOAD] Error retrieving document:", error)
+        console.error("[PARSE-DOCUMENT GET] ❌ Error:", error)
         return NextResponse.json(
-            { error: "Failed to retrieve document" },
+            { error: "Failed to fetch document", details: error instanceof Error ? error.message : "Unknown error" },
             { status: 500 }
         )
     }
 }
 
-// Helper function to map parsed_data to structured format
-function mapParsedDataToStructured(parsedData: any) {
-    if (!parsedData) return {}
+// **POST FUNCTION - Migrate webhooks to documents**
+export async function POST(request: NextRequest) {
+    try {
+        const sessionUser = await getSessionUser(request)
+        if (!sessionUser?.isAdmin) {
+            return NextResponse.json({ error: "Admin only" }, { status: 403 })
+        }
 
-    return {
-        patient_name: parsedData.patient_name,
-        patient_id: parsedData.patient_id,
-        encounter_date: parsedData.encounter_date,
-        clinician_name: parsedData.clinician_name,
-        lab_results: parsedData.lab_results || [],
-        diagnosis: parsedData.diagnosis,
-        medications: parsedData.medications,
-        procedures: parsedData.procedures,
-        imaging_findings: parsedData.imaging_findings,
-        recommendations: parsedData.recommendations,
+        const db = await getDatabase()
+        const webhookCollection = db.collection("webhook_responses")
+        const documentsCollection = db.collection("documents")
+
+        // Get all webhooks with parsed_data
+        const webhooks = await webhookCollection
+            .find({ parsed_data: { $exists: true, $ne: null } })
+            .toArray()
+
+        console.log(`[MIGRATE] Found ${webhooks.length} webhooks to migrate`)
+
+        let migratedCount = 0
+        let skippedCount = 0
+
+        for (const webhook of webhooks) {
+            // Check if already exists in documents
+            const exists = await documentsCollection.findOne({ job_id: webhook.job_id })
+
+            if (exists) {
+                console.log(`[MIGRATE] Skipping ${webhook.job_id} - already exists in documents`)
+                skippedCount++
+                continue
+            }
+
+            // Create document record from webhook
+            const documentRecord = {
+                job_id: webhook.job_id,
+                report_id: webhook.report_id || webhook.job_id,
+                file_name: `Webhook_${webhook.job_id}`,
+                file_type: "medical_report",
+                file_size: 0,
+                document_type: "Medical Report",
+                status: "completed",
+                user_email: "webhook@system.com",
+
+                // Parsed and structured data
+                parsed_data: webhook.parsed_data,
+                structured_data: mapParsedDataToStructured(webhook.parsed_data),
+                fields: extractFieldsFromParsedData(webhook.parsed_data),
+
+                // Metadata
+                summary: buildDocumentSummary(webhook.parsed_data),
+                notes: [],
+                confidence_score: 85,
+                error_message: null,
+
+                // Timestamps
+                created_at: webhook.received_at || new Date(),
+                updated_at: new Date(),
+            }
+
+            try {
+                await documentsCollection.insertOne(documentRecord)
+                console.log(`[MIGRATE] ✅ Migrated ${webhook.job_id}`)
+                migratedCount++
+            } catch (err) {
+                console.error(`[MIGRATE] ❌ Error migrating ${webhook.job_id}:`, err)
+            }
+        }
+
+        return NextResponse.json({
+            success: true,
+            message: `Migration complete: ${migratedCount} migrated, ${skippedCount} skipped`,
+            migratedCount,
+            skippedCount,
+        })
+    } catch (error) {
+        console.error("[MIGRATE] Error:", error)
+        return NextResponse.json(
+            { error: "Migration failed" },
+            { status: 500 }
+        )
     }
 }

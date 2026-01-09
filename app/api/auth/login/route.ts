@@ -1,61 +1,76 @@
 ﻿// app/api/auth/login/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/mongodb';
-import { SessionUser } from '@/lib/auth-context'; // adjust path if needed
-import bcrypt from 'bcryptjs'; // Import bcryptjs for password hashing/comparison
+import { type NextRequest, NextResponse } from "next/server";
+import { getDatabase } from "@/lib/db";
+import bcrypt from "bcryptjs";
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
     try {
-        const { email, password, role } = await req.json(); // Added role to the request body
-        if (!email || !password || !role) {
+        const { email, password, role } = await request.json();
+
+        if (!email || !password) {
             return NextResponse.json(
-                { error: 'Email, password, and role are required' },
+                { error: "Email and password required" },
                 { status: 400 }
             );
         }
-        const db = await getDb();
-        const user = await db.collection('users').findOne({ email });
+
+        const db = await getDatabase();
+        const usersCollection = db.collection("users");
+
+        // Find user
+        const user = await usersCollection.findOne({ email: email.toLowerCase() });
         if (!user) {
             return NextResponse.json(
-                { error: 'Invalid email or password' },
+                { error: "Invalid credentials" },
                 { status: 401 }
             );
         }
-        if (!(await bcrypt.compare(password, user.password))) {
+
+        // Verify password
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
             return NextResponse.json(
-                { error: 'Invalid email or password' },
+                { error: "Invalid credentials" },
                 { status: 401 }
             );
         }
+
+        // Verify role matches
         if (user.role !== role) {
             return NextResponse.json(
-                { error: 'Invalid role' },
+                { error: "Invalid role selection" },
                 { status: 401 }
             );
         }
-        // Full session data for cookie and response
-        const fullSession = {
+
+        // Create session cookie
+        const sessionData = {
             id: user._id.toString(),
             email: user.email,
+            name: user.name,
+            phoneNumber: user.phoneNumber,
             role: user.role,
-            uploadCount: user.uploadCount ?? 0,
+            uploadCount: user.uploadCount || 0,
         };
+
         const response = NextResponse.json({
             success: true,
-            user: fullSession,
+            user: sessionData,
         });
-        response.cookies.set('yira_session', JSON.stringify(fullSession), {
-            path: '/',
-            maxAge: 7 * 24 * 60 * 60, // 7 days
+
+        // Set session cookie
+        response.cookies.set("yira_session", JSON.stringify(sessionData), {
             httpOnly: true,
-            sameSite: 'strict',
-            secure: process.env.NODE_ENV === 'production',
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60, // 7 days
         });
+
         return response;
     } catch (error) {
-        console.error('[Login API] Error:', error);
+        console.error("[LOGIN] Error:", error);
         return NextResponse.json(
-            { error: 'Login failed' },
+            { error: "Login failed" },
             { status: 500 }
         );
     }

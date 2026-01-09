@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, Loader2, Shield, User, Lock, Mail, LogOut, Eye, EyeOff } from "lucide-react";
+import { AlertCircle, Loader2, Shield, User, Lock, Mail, LogOut, Eye, EyeOff, Phone } from "lucide-react";
 import Image from "next/image";
 
 export default function LoginPage() {
@@ -22,6 +22,8 @@ export default function LoginPage() {
     const [confirmPassword, setConfirmPassword] = useState("");
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [isSigningUp, setIsSigningUp] = useState(false);
+    const [name, setName] = useState("");
+    const [phoneNumber, setPhoneNumber] = useState("");
     const { login, logout, user } = useAuth();
     const router = useRouter();
 
@@ -30,7 +32,7 @@ export default function LoginPage() {
         setError("");
         setIsLoading(true);
         try {
-            const result = await login(email, password, selectedRole); // Pass selectedRole to login
+            const result = await login(email, password, selectedRole);
             if (result.success) {
                 router.push("/");
             } else {
@@ -46,6 +48,18 @@ export default function LoginPage() {
     const handleSignup = async (e: React.FormEvent) => {
         e.preventDefault();
         setError("");
+        
+        // Validation
+        if (!name.trim()) {
+            setError("Name is required");
+            return;
+        }
+
+        if (!phoneNumber.replace(/\D/g, "").match(/^\d{10}$/)) {
+            setError("Phone number must be exactly 10 digits");
+            return;
+        }
+
         if (password !== confirmPassword) {
             setError("Passwords do not match");
             return;
@@ -54,12 +68,19 @@ export default function LoginPage() {
             setError("Password must be at least 6 characters");
             return;
         }
+        
         setIsSigningUp(true);
         try {
             const res = await fetch("/api/auth/signup", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, password, role: selectedRole }),
+                body: JSON.stringify({ 
+                    email, 
+                    password, 
+                    name,
+                    phoneNumber,
+                    role: selectedRole 
+                }),
             });
             const data = await res.json();
             if (!res.ok) {
@@ -70,6 +91,8 @@ export default function LoginPage() {
             setEmail("");
             setPassword("");
             setConfirmPassword("");
+            setName("");
+            setPhoneNumber("");
             setIsSignupMode(false);
             alert("Account created successfully! Please login.");
         } catch (err) {
@@ -140,6 +163,46 @@ export default function LoginPage() {
                     </div>
                     {/* Form */}
                     <form onSubmit={isSignupMode ? handleSignup : handleLogin} className="space-y-3.5">
+                        {/* Name - Only for Signup */}
+                        {isSignupMode && (
+                            <div className="space-y-1.5">
+                                <Label htmlFor="name" className="text-xs font-medium text-slate-700">Full Name</Label>
+                                <div className="relative">
+                                    <User className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                                    <Input
+                                        id="name"
+                                        type="text"
+                                        placeholder="Enter full name"
+                                        className="pl-9 h-9 text-sm border-slate-200 focus:ring-1"
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                        required={isSignupMode}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Phone Number - Only for Signup */}
+                        {isSignupMode && (
+                            <div className="space-y-1.5">
+                                <Label htmlFor="phone" className="text-xs font-medium text-slate-700">Phone Number</Label>
+                                <div className="relative">
+                                    <Phone className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                                    <Input
+                                        id="phone"
+                                        type="tel"
+                                        placeholder="10-digit number"
+                                        className="pl-9 h-9 text-sm border-slate-200 focus:ring-1"
+                                        value={phoneNumber}
+                                        onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                                        required={isSignupMode}
+                                        maxLength={10}
+                                    />
+                                </div>
+                                <p className="text-xs text-slate-500">Enter 10 digits without spaces or special characters</p>
+                            </div>
+                        )}
+
                         <div className="space-y-1.5">
                             <Label htmlFor="email" className="text-xs font-medium text-slate-700">
                                 Email
@@ -196,7 +259,7 @@ export default function LoginPage() {
                                         className="pl-9 pr-9 h-9 text-sm border-slate-200 focus:ring-1"
                                         value={confirmPassword}
                                         onChange={(e) => setConfirmPassword(e.target.value)}
-                                        required
+                                        required={isSignupMode}
                                     />
                                     <button
                                         type="button"
@@ -233,9 +296,12 @@ export default function LoginPage() {
                                 setError("");
                                 setPassword("");
                                 setConfirmPassword("");
+                                setName("");
+                                setPhoneNumber("");
                             }}
                             className="w-full text-xs text-slate-600 hover:text-blue-600 transition"
                         >
+                            {isSignupMode ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}
                         </button>
                     </form>
                 </div>
