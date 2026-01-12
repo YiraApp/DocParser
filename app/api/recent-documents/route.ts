@@ -1,18 +1,21 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
 import { getSessionUser } from "@/lib/auth-server"
+import { ObjectId } from "mongodb"
 
 interface HistoryDocument {
     id: string
     file_name: string
+    file_type?: string
+    file_size?: number
     created_at: string
     structured_data: any
-    job_id?: string
-    report_id?: string
+    status?: string
     user_email?: string
     user_name?: string
     document_type?: string
-    status?: string
+    job_id?: string
+    report_id?: string
 }
 
 export async function GET(request: NextRequest) {
@@ -28,7 +31,7 @@ export async function GET(request: NextRequest) {
 
         const db = await getDatabase()
         const documentsCollection = db.collection("documents")
-        const jobCollection = db.collection("job_ids")
+        const webhookCollection = db.collection("webhook_responses")
 
         // Build user filter - admins see all, users see only their own
         const userFilter = sessionUser.isAdmin
@@ -45,53 +48,72 @@ export async function GET(request: NextRequest) {
             JSON.stringify(userFilter),
         )
 
-        // Fetch from both collections
-        const [documents, jobRecords] = await Promise.all([
-            documentsCollection
-                .find(userFilter)
-                .sort({ created_at: -1 })
-                .limit(limit)
-                .toArray(),
-            jobCollection
-                .find(userFilter)
-                .sort({ created_at: -1 })
-                .limit(limit)
-                .toArray(),
-        ])
+        // Fetch from webhook_responses (most recent) - job_id based
+        const webhookRecords = await webhookCollection
+            .find(userFilter)
+            .sort({ received_at: -1 })
+            .limit(limit)
+            .toArray()
 
         console.log(
             "[RECENT-DOCUMENTS]",
             "Found:",
-            documents.length,
-            "documents,",
-            jobRecords.length,
-            "jobs"
+            webhookRecords.length,
+            "webhook records"
         )
 
-        // Combine and deduplicate
-        const allRecords = [
-            ...documents,
-            ...jobRecords,
-        ]
+        // Map webhook records to documents by fetching full document data
+        const mappedDocuments: HistoryDocument[] = []
 
-        // Sort by created_at and remove duplicates
-        const seen = new Set()
-        const uniqueRecords = allRecords
-            .sort((a: any, b: any) => {
-                const dateA = new Date(a.created_at || a.uploaded_at || a.timestamp || new Date()).getTime()
-                const dateB = new Date(b.created_at || b.uploaded_at || b.timestamp || new Date()).getTime()
-                return dateB - dateA
-            })
-            .filter((doc: any) => {
-                const key = doc.job_id || doc._id?.toString()
-                if (seen.has(key)) return false
-                seen.add(key)
-                return true
-            })
-            .slice(0, limit)
+        for (const webhook of webhookRecords) {
+            // Try to fetch the full document from documents collection
+            let fullDocument = null
+
+            if (webhook.job_id) {
+                fullDocument = await documentsCollection.findOne({ job_id: webhook.job_id })
+            }
+
+            // If found in documents collection, use that data; otherwise use webhook data
+            if (fullDocument) {
+                mappedDocuments.push({
+                    id: fullDocument._id?.toString() || webhook.job_id || "",
+                    file_name: fullDocument.file_name,
+                    file_type: fullDocument.file_type,
+                    file_size: fullDocument.file_size,
+                    created_at: fullDocument.created_at,
+                    structured_data: fullDocument.structured_data,
+                    status: fullDocument.status,
+                    user_email: fullDocument.user_email,
+                    user_name: fullDocument.user_email?.split("@")[0] || "Unknown",
+                    document_type: fullDocument.document_type,
+                    job_id: webhook.job_id,
+                    report_id: webhook.report_id,
+                })
+            } else {
+                // Fallback to webhook data if document not found
+                mappedDocuments.push({
+                    id: webhook._id?.toString() || webhook.job_id || "",
+                    file_name: webhook.file_name || `Document_${webhook.job_id}`,
+                    file_type: "medical_report",
+                    file_size: 0,
+                    created_at: (webhook.received_at || webhook.timestamp || new Date()).toString().includes("T")
+                        ? (webhook.received_at || webhook.timestamp || new Date()).toISOString()
+                        : new Date(webhook.received_at || webhook.timestamp || new Date()).toISOString(),
+                    structured_data: webhook.parsed_data
+                        ? mapParsedDataToStructured(webhook.parsed_data)
+                        : {},
+                    status: webhook.status || "completed",
+                    user_email: webhook.user_email,
+                    user_name: webhook.user_email?.split("@")[0] || "Unknown",
+                    document_type: "Medical Report",
+                    job_id: webhook.job_id,
+                    report_id: webhook.report_id,
+                })
+            }
+        }
 
         // Debug: Log document details
-        uniqueRecords.forEach((doc: any, idx: number) => {
+        mappedDocuments.forEach((doc: any, idx: number) => {
             console.log(`[RECENT-DOCUMENTS] Doc ${idx + 1}:`, {
                 file_name: doc.file_name,
                 user_email: doc.user_email,
@@ -100,24 +122,6 @@ export async function GET(request: NextRequest) {
                 status: doc.status,
             })
         })
-
-        // Map documents
-        const mappedDocuments: HistoryDocument[] = uniqueRecords.map((doc: any) => ({
-            id: doc._id?.toString() || doc.job_id || "",
-            file_name: doc.file_name || "document",
-            created_at: (doc.created_at || doc.uploaded_at || doc.timestamp || new Date()).toString().includes("T")
-                ? doc.created_at || doc.uploaded_at || doc.timestamp || new Date().toISOString()
-                : new Date(doc.created_at || doc.uploaded_at || doc.timestamp || new Date()).toISOString(),
-            structured_data: doc.parsed_data
-                ? mapParsedDataToStructured(doc.parsed_data)
-                : doc.structured_data || {},
-            job_id: doc.job_id,
-            report_id: doc.report_id,
-            user_email: doc.user_email,
-            user_name: doc.user_name,
-            document_type: doc.document_type || "Medical Document",
-            status: doc.status || "completed",
-        }))
 
         return NextResponse.json({ documents: mappedDocuments })
     } catch (error) {
