@@ -5,35 +5,50 @@ import { ResultsSection } from "@/components/results-section"
 import { HomeSearchPanel } from "@/components/home-search-panel"
 import { LeftSidebar } from "@/components/left-sidebar"
 import { Button } from "@/components/ui/button"
-import { Search, LogOut, User, Shield } from "lucide-react"
+import { Search, LogOut, User, Shield, UserPlus, X, AlertCircle, CheckCircle, Loader2, BarChart3 } from "lucide-react"
 import Image from "next/image"
 import { useAuth } from "@/lib/auth-context"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { SearchInterface } from "../components/search-interface"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 export default function HomePage() {
     const [parsedDocument, setParsedDocument] = useState<any>(null)
     const [showResults, setShowResults] = useState(false)
     const [showSearch, setShowSearch] = useState(false)
-    const [isHydrated, setIsHydrated] = useState(false)
-
-    const { user, logout, isAdmin } = useAuth()
+    const [showCreateAccount, setShowCreateAccount] = useState(false)
+    const [createEmail, setCreateEmail] = useState("")
+    const [createPassword, setCreatePassword] = useState("")
+    const [createConfirmPassword, setCreateConfirmPassword] = useState("")
+    const [createRole, setCreateRole] = useState<"admin" | "user">("user")
+    const [createError, setCreateError] = useState("")
+    const [createSuccess, setCreateSuccess] = useState(false)
+    const [isCreating, setIsCreating] = useState(false)
+    const [createName, setCreateName] = useState("")
+    const [createPhoneNumber, setCreatePhoneNumber] = useState("")
+    const { user, logout, isAdmin, isLoading } = useAuth()
     const router = useRouter()
 
     useEffect(() => {
-        setIsHydrated(true)
-    }, [])
+        if (isLoading) return
 
-    useEffect(() => {
-        if (!isHydrated) return
-        
         if (!user) {
             router.push("/login")
         }
-    }, [user, router, isHydrated])
+    }, [user, router, isLoading])
 
-    if (!isHydrated || !user) return null
+    if (isLoading || !user) {
+        return (
+            <div className="h-screen flex items-center justify-center bg-background">
+                <div className="text-center space-y-4">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                    <p className="text-muted-foreground">Loading...</p>
+                </div>
+            </div>
+        )
+    }
 
     const handleUploadSuccess = (document: any) => {
         setParsedDocument(document)
@@ -48,7 +63,6 @@ export default function HomePage() {
     }
 
     const handleSearchDocumentSelect = (document: any) => {
-        // Transform the search result document to match ResultsView expectations
         const transformedDocument = {
             id: document.id,
             fileName: document.file_name || document.fileName,
@@ -62,7 +76,7 @@ export default function HomePage() {
             confidenceScore: document.confidence_score || document.confidenceScore || 0,
             healthRecommendations: document.health_recommendations || document.healthRecommendations || null,
         }
-        
+
         setParsedDocument(transformedDocument)
         setShowResults(true)
         setShowSearch(false)
@@ -84,7 +98,81 @@ export default function HomePage() {
 
     const handleLogout = () => {
         logout()
-        router.push("/login")
+    }
+
+    const handleCreateAccountClick = () => {
+        setShowCreateAccount(true)
+        setCreateEmail("")
+        setCreatePassword("")
+        setCreateConfirmPassword("")
+        setCreateName("")
+        setCreatePhoneNumber("")
+        setCreateRole("user")
+        setCreateError("")
+        setCreateSuccess(false)
+    }
+
+    const handleCreateAccountSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setCreateError("")
+        setCreateSuccess(false)
+        
+        if (!createEmail || !createPassword || !createConfirmPassword || !createName || !createPhoneNumber) {
+            setCreateError("All fields are required")
+            return
+        }
+        
+        if (!createPhoneNumber.replace(/\D/g, "").match(/^\d{10}$/)) {
+            setCreateError("Phone number must be exactly 10 digits")
+            return
+        }
+        
+        if (createPassword !== createConfirmPassword) {
+            setCreateError("Passwords do not match")
+            return
+        }
+        if (createPassword.length < 6) {
+            setCreateError("Password must be at least 6 characters")
+            return
+        }
+        if (createRole === "admin" && !isAdmin) {
+            setCreateError("Only admins can create admin accounts")
+            return
+        }
+        setIsCreating(true)
+        try {
+            const res = await fetch("/api/auth/signup", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    email: createEmail,
+                    password: createPassword,
+                    name: createName,
+                    phoneNumber: createPhoneNumber,
+                    role: createRole,
+                }),
+            })
+            const data = await res.json()
+            if (!res.ok) {
+                setCreateError(data.error || "Failed to create account")
+                return
+            }
+            setCreateSuccess(true)
+            setCreateEmail("")
+            setCreatePassword("")
+            setCreateConfirmPassword("")
+            setCreateName("")
+            setCreatePhoneNumber("")
+            setCreateRole("user")
+
+            setTimeout(() => {
+                setShowCreateAccount(false)
+            }, 2000)
+        } catch (err) {
+            setCreateError("An error occurred while creating account")
+        } finally {
+            setIsCreating(false)
+        }
     }
 
     return (
@@ -103,7 +191,6 @@ export default function HomePage() {
                                 </p>
                             </div>
                         </div>
-
                         {/* Right Actions */}
                         <div className="flex items-center gap-2">
                             {/* User Info */}
@@ -120,8 +207,7 @@ export default function HomePage() {
                                     </Badge>
                                 )}
                             </div>
-
-                            {/* 🔍 SEARCH BUTTON + DROPDOWN */}
+                            {/* SEARCH BUTTON + DROPDOWN */}
                             <div className="relative">
                                 <Button
                                     variant="ghost"
@@ -132,7 +218,6 @@ export default function HomePage() {
                                     <Search className="w-4 h-4" />
                                     <span className="hidden sm:inline">Search</span>
                                 </Button>
-
                                 {showSearch && (
                                     <div className="absolute right-0 top-full mt-2 w-[500px] max-h-[600px] z-50 rounded-xl border bg-background shadow-xl overflow-hidden flex flex-col">
                                         <SearchInterface
@@ -142,9 +227,18 @@ export default function HomePage() {
                                     </div>
                                 )}
                             </div>
-
-                            <Link href="/metrics" />
-
+                            {/* CREATE ACCOUNT BUTTON */}
+                            {isAdmin && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleCreateAccountClick}
+                                    className="gap-2"
+                                >
+                                    <UserPlus className="w-4 h-4" />
+                                    <span className="hidden sm:inline">Create Account</span>
+                                </Button>
+                            )}
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -158,14 +252,12 @@ export default function HomePage() {
                     </div>
                 </div>
             </header>
-
             {/* BODY */}
             <div className="flex flex-1 overflow-hidden">
                 <LeftSidebar
                     onUploadSuccess={handleUploadSuccess}
                     onHistorySelect={handleHistorySelect}
                 />
-
                 <main className="flex-1 overflow-y-auto">
                     {showResults ? (
                         <div className="p-4 sm:p-6">
@@ -195,6 +287,162 @@ export default function HomePage() {
                     )}
                 </main>
             </div>
+            {/* CREATE ACCOUNT MODAL */}
+            {showCreateAccount && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6 space-y-4">
+                        {/* Header */}
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-xl font-semibold">Create New Account</h2>
+                            <button
+                                onClick={() => setShowCreateAccount(false)}
+                                className="p-1 hover:bg-gray-100 rounded-lg"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        {/* Form */}
+                        <form onSubmit={handleCreateAccountSubmit} className="space-y-4">
+                            {/* Role Selection */}
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Account Type</Label>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setCreateRole("user")}
+                                        className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition flex items-center justify-center gap-2 ${createRole === "user"
+                                            ? "bg-blue-50 border-blue-300 text-blue-700"
+                                            : "border-gray-300 text-gray-600 hover:border-gray-400"
+                                            }`}
+                                    >
+                                        <User className="w-4 h-4" />
+                                        User
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (isAdmin) {
+                                                setCreateRole("admin")
+                                            } else {
+                                                setCreateError("Only admins can create admin accounts")
+                                            }
+                                        }}
+                                        disabled={!isAdmin}
+                                        className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition flex items-center justify-center gap-2 ${createRole === "admin"
+                                            ? "bg-blue-50 border-blue-300 text-blue-700"
+                                            : isAdmin
+                                                ? "border-gray-300 text-gray-600 hover:border-gray-400"
+                                                : "border-gray-200 text-gray-400 cursor-not-allowed"
+                                            }`}
+                                    >
+                                        <Shield className="w-4 h-4" />
+                                        Admin
+                                    </button>
+                                </div>
+                                {!isAdmin && <p className="text-xs text-gray-500">Only admins can create admin accounts</p>}
+                            </div>
+                            {/* Email */}
+                            <div className="space-y-2">
+                                <Label htmlFor="create-email" className="text-sm font-medium">Email</Label>
+                                <Input
+                                    id="create-email"
+                                    type="email"
+                                    placeholder="Enter email"
+                                    value={createEmail}
+                                    onChange={(e) => setCreateEmail(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            {/* Password */}
+                            <div className="space-y-2">
+                                <Label htmlFor="create-password" className="text-sm font-medium">Password</Label>
+                                <Input
+                                    id="create-password"
+                                    type="password"
+                                    placeholder="Enter password"
+                                    value={createPassword}
+                                    onChange={(e) => setCreatePassword(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            {/* Confirm Password */}
+                            <div className="space-y-2">
+                                <Label htmlFor="create-confirm-password" className="text-sm font-medium">Confirm Password</Label>
+                                <Input
+                                    id="create-confirm-password"
+                                    type="password"
+                                    placeholder="Confirm password"
+                                    value={createConfirmPassword}
+                                    onChange={(e) => setCreateConfirmPassword(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            {/* Full Name Field */}
+                            <div className="space-y-2">
+                                <Label htmlFor="create-name" className="text-sm font-medium">Full Name</Label>
+                                <Input
+                                    id="create-name"
+                                    type="text"
+                                    placeholder="Enter full name"
+                                    value={createName}
+                                    onChange={(e) => setCreateName(e.target.value)}
+                                    required
+                                />
+                            </div>
+                            {/* Phone Number Field */}
+                            <div className="space-y-2">
+                                <Label htmlFor="create-phone" className="text-sm font-medium">Phone Number (10 digits)</Label>
+                                <Input
+                                    id="create-phone"
+                                    type="tel"
+                                    placeholder="10-digit number"
+                                    value={createPhoneNumber}
+                                    onChange={(e) => setCreatePhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                                    required
+                                    maxLength={10}
+                                />
+                                <p className="text-xs text-gray-500">Enter 10 digits without spaces</p>
+                            </div>
+                            {/* Error Message */}
+                            {createError && (
+                                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                    <AlertCircle className="w-4 h-4 shrink-0" />
+                                    {createError}
+                                </div>
+                            )}
+                            {/* Success Message */}
+                            {createSuccess && (
+                                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+                                    <CheckCircle className="w-4 h-4 shrink-0" />
+                                    Account created successfully!
+                                </div>
+                            )}
+                            {/* Action Buttons */}
+                            <div className="flex gap-2 pt-4">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setShowCreateAccount(false)}
+                                    className="flex-1"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={isCreating}
+                                    className="flex-1"
+                                >
+                                    {isCreating ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        "Create Account"
+                                    )}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

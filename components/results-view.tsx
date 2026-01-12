@@ -81,7 +81,35 @@ function normalizeField(field: any): { label: string; value: string } | null {
     }
     return null
 }
-function categorizeFields(fields: Array<any>) {
+// Add this helper function before the main component
+function shouldExcludeField(label: string, structuredData: any): boolean {
+    const labelLower = label.toLowerCase()
+
+    // Skip fields that are already displayed in the main section
+    const skipLabels = [
+        'patient name',
+        'name',
+        'full name',
+        'date of birth',
+        'dob',
+        'age',
+        'gender',
+        'sex',
+        'medical record number',
+        'mrn',
+        'mr number',
+        'hospital name',
+        'facility',
+        'department',
+        'doctor name',
+        'clinician name',
+        'consultant'
+    ]
+
+    return skipLabels.some(skip => labelLower.includes(skip))
+}
+// Update the categorizeFields function to accept structuredData as parameter
+function categorizeFields(fields: Array<any>, structuredData: any = {}) {
     const categories = {
         patient: [] as Array<{ label: string; value: string }>,
         medical: [] as Array<{ label: string; value: string }>,
@@ -246,12 +274,20 @@ function categorizeFields(fields: Array<any>) {
         "occupation",
         "blood group",
     ]
+
     fields.forEach((field) => {
         const normalizedField = normalizeField(field)
         if (!normalizedField) {
             console.warn("[v0] Skipping invalid field (could not normalize):", field)
             return
         }
+
+        // Skip fields that are already shown in structured data
+        if (shouldExcludeField(normalizedField.label, structuredData)) {
+            console.warn("[v0] Skipping duplicate field:", normalizedField.label)
+            return
+        }
+
         const labelLower = normalizedField.label.toLowerCase()
         if (billingKeywords.some((kw) => labelLower.includes(kw))) {
             categories.billing.push(normalizedField)
@@ -550,7 +586,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
     }
     const confidenceDisplay = getConfidenceDisplay(document?.confidenceScore)
     const ConfidenceIcon = confidenceDisplay.icon
-    const categorizedFields = categorizeFields(document?.fields || [])
+    const categorizedFields = categorizeFields(document?.fields || [], document?.structuredData || {})
     // Enhanced patient name extraction to fix "Unknown Patient" issue
     const patientNameField = categorizedFields.patient.find(field =>
         field.label.toLowerCase().includes('patient name') ||
