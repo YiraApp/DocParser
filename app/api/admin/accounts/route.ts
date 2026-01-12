@@ -25,10 +25,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { email, password, role } = body
+    const { email, password, name, role, status = "active" } = body
 
     // Validate input
-    if (!email || !password || !    role) {
+    if (!email || !password || !role || !name) {
       return NextResponse.json(
         { error: "Email and role are required" },
         { status: 400 }

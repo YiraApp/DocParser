@@ -313,11 +313,15 @@ export async function POST(request: NextRequest) {
 
         console.log("[WEBHOOK POST] ===== COMPLETE =====")
 
+        // **RETURN RESPONSE WITH job_id**
         return NextResponse.json(
             {
                 success: true,
-                message: "Webhook processed",
+                message: "Webhook processed successfully",
                 job_id: payload.job_id,
+                report_id: payload.report_id,
+                status: payload.status,
+                timestamp: new Date().toISOString(),
             },
             { status: 200 }
         )
@@ -359,8 +363,10 @@ export async function GET(request: NextRequest) {
                 webhook: {
                     id: webhook._id.toString(),
                     job_id: webhook.job_id,
+                    report_id: webhook.report_id,
                     status: webhook.status,
                     parsed_data: webhook.parsed_data,
+                    timestamp: webhook.timestamp,
                 },
             })
         }
@@ -374,7 +380,13 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            webhooks: recentWebhooks,
+            webhooks: recentWebhooks.map((w: any) => ({
+                id: w._id.toString(),
+                job_id: w.job_id,
+                report_id: w.report_id,
+                status: w.status,
+                timestamp: w.timestamp,
+            })),
             count: recentWebhooks.length,
         })
     } catch (error) {

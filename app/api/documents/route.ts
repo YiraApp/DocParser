@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams
         const limit = Number.parseInt(searchParams.get("limit") || "10")
+        
         // Get session user to check role
         const sessionUser = await getSessionUser(request)
         if (!sessionUser) {
@@ -14,13 +15,17 @@ export async function GET(request: NextRequest) {
                 { status: 401 }
             )
         }
+
         const db = await getDatabase()
         const documentsCollection = db.collection("documents")
         const jobCollection = db.collection("job_ids")
+        const usersCollection = db.collection("users")
+
         // Build filter: admins see all, users see only their own
         const userFilter = sessionUser.isAdmin ? {} : { user_email: sessionUser.email }
+
         // Fetch from both collections and merge
-        const [documents, jobRecords] = await Promise.all([
+        const [documents, jobRecords, users] = await Promise.all([
             documentsCollection
                 .find(userFilter)
                 .sort({ created_at: -1 })
@@ -29,12 +34,21 @@ export async function GET(request: NextRequest) {
                 .find(userFilter)
                 .sort({ created_at: -1 })
                 .toArray(),
+            usersCollection.find({}).toArray(),
         ])
+
+        // Create email to name map
+        const userNameMap = new Map()
+        users.forEach((user: any) => {
+            userNameMap.set(user.email, user.name || user.email)
+        })
+
         console.log("[DOCUMENTS] Found documents:", documents.length, "jobs:", jobRecords.length)
+
         // Combine and sort by date
         const allRecords = [
             ...documents.map((doc: any) => ({
-                id: doc.job_id || doc._id?.toString(),  // Prioritize job_id
+                id: doc.job_id || doc._id?.toString(),
                 file_name: doc.file_name || "Unknown Document",
                 created_at: doc.created_at || new Date().toISOString(),
                 structured_data: doc.parsed_data || doc.structured_data || {},
@@ -43,9 +57,10 @@ export async function GET(request: NextRequest) {
                 document_type: doc.document_type || "Medical Report",
                 status: doc.status || "unknown",
                 user_email: doc.user_email,
+                user_name: userNameMap.get(doc.user_email) || doc.user_email,
             })),
             ...jobRecords.map((job: any) => ({
-                id: job.job_id || job._id?.toString(),  // Prioritize job_id
+                id: job.job_id || job._id?.toString(),
                 file_name: job.file_name || "Unknown Document",
                 created_at: job.created_at || new Date().toISOString(),
                 structured_data: job.parsed_data || {},
@@ -54,8 +69,10 @@ export async function GET(request: NextRequest) {
                 document_type: job.document_type || "Medical Report",
                 status: job.status || "processing",
                 user_email: job.user_email,
+                user_name: userNameMap.get(job.user_email) || job.user_email,
             })),
         ]
+
         // Sort by date and remove duplicates
         const seen = new Set()
         const uniqueRecords = allRecords
@@ -70,7 +87,9 @@ export async function GET(request: NextRequest) {
                 return true
             })
             .slice(0, limit)
+
         console.log("[DOCUMENTS] Returning", uniqueRecords.length, "unique records")
+
         return NextResponse.json({ documents: uniqueRecords })
     } catch (error) {
         console.error("[DOCUMENTS] Error:", error)
