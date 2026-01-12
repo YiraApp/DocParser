@@ -15,6 +15,8 @@ export async function GET(request: NextRequest) {
         // Get full user data from database
         const db = await getDatabase()
         const usersCollection = db.collection("users")
+        const jobIdsCollection = db.collection("job_ids")
+        
         const user = await usersCollection.findOne({ email: sessionUser.email })
 
         if (!user) {
@@ -22,6 +24,18 @@ export async function GET(request: NextRequest) {
                 { success: false, error: "User not found" },
                 { status: 404 }
             )
+        }
+
+        // Get actual upload count from job_ids collection by counting documents for this user
+        let uploadCount = 0
+        if (user.role !== "admin") {
+            const count = await jobIdsCollection.countDocuments({
+                user_email: sessionUser.email
+            })
+            uploadCount = count || 0
+            console.log(`[ME] User ${sessionUser.email} has ${uploadCount} documents in job_ids`)
+        } else {
+            uploadCount = -1 // Admins have unlimited uploads
         }
 
         return NextResponse.json({
@@ -32,7 +46,7 @@ export async function GET(request: NextRequest) {
                 name: user.name,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
-                uploadCount: user.uploadCount || 0,
+                uploadCount: uploadCount,
             },
         })
     } catch (error) {
