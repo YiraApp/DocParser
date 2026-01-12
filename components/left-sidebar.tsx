@@ -3,12 +3,14 @@ import type React from "react"
 import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Upload, FileText, Loader2, CheckCircle2, Zap, Clock, ChevronRight, AlertCircle } from "lucide-react"
+import { Upload, FileText, Loader2, CheckCircle2, Zap, Clock, ChevronRight, AlertCircle, Search, X, ChevronLeft } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAuth } from "@/lib/auth-context"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface LeftSidebarProps {
     onUploadSuccess: (document: any) => void
@@ -17,9 +19,21 @@ interface LeftSidebarProps {
 
 interface HistoryDocument {
     id: string
+    job_id?: string
     file_name: string
     created_at: string
     structured_data: any
+    user_email?: string
+    user_name?: string
+}
+
+interface PaginationInfo {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+    hasNextPage: boolean
+    hasPrevPage: boolean
 }
 
 export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarProps) {
@@ -31,64 +45,78 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
     const [history, setHistory] = useState<HistoryDocument[]>([])
     const [isLoadingHistory, setIsLoadingHistory] = useState(true)
     const [showLimitDialog, setShowLimitDialog] = useState(false)
+    const [filterQuery, setFilterQuery] = useState("")
+    const [filterType, setFilterType] = useState<"name" | "email" | "user">("name")
+    const [currentPage, setCurrentPage] = useState(1)
+    const [pagination, setPagination] = useState<PaginationInfo | null>(null)
     const { user, incrementUploadCount, isAdmin } = useAuth()
     const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
 
-    // Fetch recent documents on component mount and when user changes
-    useEffect(() => {
-        const fetchRecentDocuments = async () => {
-            if (!user) return
+    // Fetch documents with pagination
+    const fetchDocuments = async (page: number = 1) => {
+        if (!user) return
 
-            setIsLoadingHistory(true)
-            try {
-                const response = await fetch("/api/recent-documents?limit=5", {
-                    credentials: "include",
-                })
-
-                if (!response.ok) {
-                    console.error("[SIDEBAR] Failed to fetch recent documents")
-                    setIsLoadingHistory(false)
-                    return
-                }
-
-                const data = await response.json()
-                // Fix: Set history state directly instead of calling the function
-                setHistory(data.documents || [])
-            } catch (err) {
-                console.error("[SIDEBAR] Fetch error:", err)
-            } finally {
-                setIsLoadingHistory(false)
-            }
-        }
-
-        fetchRecentDocuments()
-    }, [user])
-
-    const fetchHistory = async () => {
+        setIsLoadingHistory(true)
         try {
-            setIsLoadingHistory(true)
-            const response = await fetch("/api/documents?limit=10")
-            if (response.ok) {
-                const data = await response.json()
-                setHistory(data.documents || [])
+            const params = new URLSearchParams({
+                page: page.toString(),
+                limit: "5",
+            })
+
+            // Only add filters for admins
+            if (isAdmin) {
+                if (filterQuery.trim()) {
+                    if (filterType === "email") {
+                        params.append("filterEmail", filterQuery)
+                    } else if (filterType === "user") {
+                        params.append("filterUser", filterQuery)
+                    } else {
+                        params.append("filterName", filterQuery)
+                    }
+                }
             }
-        } catch (error) {
-            // Error fetching history
+
+            const response = await fetch(`/api/recent-documents?${params}`, {
+                credentials: "include",
+            })
+
+            if (!response.ok) {
+                console.error("[SIDEBAR] Failed to fetch documents")
+                setIsLoadingHistory(false)
+                return
+            }
+
+            const data = await response.json()
+            setHistory(data.documents || [])
+            setPagination(data.pagination)
+            setCurrentPage(page)
+        } catch (err) {
+            console.error("[SIDEBAR] Fetch error:", err)
         } finally {
             setIsLoadingHistory(false)
         }
     }
 
+    // Fetch on component mount
+    useEffect(() => {
+        fetchDocuments(1)
+    }, [user])
+
+    // Fetch when filter changes (for admins only)
+    useEffect(() => {
+        if (isAdmin) {
+            fetchDocuments(1)
+        }
+    }, [filterQuery, filterType, isAdmin])
+
     const handleHistoryClick = async (doc: HistoryDocument) => {
         if (!onHistorySelect) return
         try {
-            // Fetch full document data to match ParsedDocument interface
             const response = await fetch(`/api/parse-document?id=${doc.id}`)
             if (!response.ok) {
                 throw new Error("Failed to fetch document details")
             }
             const fullData = await response.json()
-            // Ensure it matches the expected shape (fallback to history data if needed)
             const formattedData = {
                 id: fullData.id || doc.id,
                 fileName: fullData.fileName || fullData.file_name || doc.file_name,
@@ -101,11 +129,11 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                 structuredData: fullData.structuredData || fullData.structured_data || doc.structured_data,
                 confidenceScore: fullData.confidenceScore || fullData.confidence_score,
                 healthRecommendations: fullData.healthRecommendations || fullData.health_recommendations,
+                jobId: fullData.jobId || doc.job_id,
             }
             onHistorySelect(formattedData)
         } catch (error) {
             console.error("[LeftSidebar] Error fetching history document:", error)
-            // Fallback to partial data if fetch fails
             onHistorySelect({
                 id: doc.id,
                 fileName: doc.file_name,
@@ -117,6 +145,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                 notes: [],
                 confidenceScore: undefined,
                 healthRecommendations: undefined,
+                jobId: doc.job_id,
             })
         }
     }
@@ -202,7 +231,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             const formData = new FormData()
             formData.append("file", file)
             setUploadProgress(50)
-            // Call the wrapper API with user headers
             const response = await fetch("/api/upload-wrapper", {
                 method: "POST",
                 headers: {
@@ -220,13 +248,11 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             }
             const data = await response.json()
             console.log("[LeftSidebar] Upload success, ID:", data.id)
-            // Fetch full document data using the returned ID
             setProgressMessage("Retrieving document data...")
             const fullDataResponse = await fetch(`/api/parse-document?id=${data.id}`)
             if (!fullDataResponse.ok) {
                 const errorMsg = await fullDataResponse.json().catch(() => ({ error: "Document retrieval failed" }))
                 console.warn("[LeftSidebar] Document not yet available, using partial data:", errorMsg)
-                // Use partial data from upload response instead of failing
                 const partialData = {
                     id: data.id,
                     fileName: file.name,
@@ -250,13 +276,12 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                 setFile(null)
                 setUploadProgress(0)
                 setProgressMessage("")
-                fetchHistory()
+                fetchDocuments(1)
                 onUploadSuccess(partialData)
                 return
             }
             const fullData = await fullDataResponse.json()
             console.log("[LeftSidebar] Full document data retrieved:", fullData)
-            // Format the complete data
             const formattedData = {
                 id: fullData.id,
                 fileName: fullData.fileName || file.name,
@@ -279,8 +304,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             setFile(null)
             setUploadProgress(0)
             setProgressMessage("")
-            fetchHistory()
-            // Single callback with complete data
+            fetchDocuments(1)
             onUploadSuccess(formattedData)
         } catch (error) {
             console.error("[LeftSidebar] Upload error:", error)
@@ -314,10 +338,9 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                 </div>
                             </Card>
                         )}
-                        {/* Upload Area */}
+
                         <Card className="border border-primary/20 shadow-lg bg-gradient-to-br from-card to-card/50 backdrop-blur-sm">
                             <div className="p-2 space-y-2">
-                                {/* Header */}
                                 <div className="flex items-center gap-2">
                                     <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
                                         <Upload className="w-3 h-3 text-primary" />
@@ -326,7 +349,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                         Upload New Document
                                     </h3>
                                 </div>
-                                {/* Drop Zone */}
+
                                 <div
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
@@ -393,8 +416,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                         </Button>
                                     </div>
                                 </div>
-                                {/* Upload Progress */}
-                                {/* Action Button */}
+
                                 <Button
                                     onClick={handleUpload}
                                     disabled={!file || isUploading}
@@ -414,6 +436,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                 </Button>
                             </div>
                         </Card>
+
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
                                 <Clock className="w-3 h-3 text-muted-foreground" />
@@ -421,38 +444,135 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                     Recent Documents
                                 </h3>
                             </div>
+
+                            {/* Filter Section - Only for Admins */}
+                            {isAdmin && history.length > 0 && (
+                                <Card className="border border-border/50 bg-muted/20 p-2">
+                                    <div className="space-y-2">
+                                        <Tabs defaultValue="name" value={filterType} onValueChange={(value) => setFilterType(value as "name" | "email" | "user")}>
+                                            <TabsList className="grid w-full grid-cols-3 h-7">
+                                                <TabsTrigger value="name" className="text-xs">File Name</TabsTrigger>
+                                                <TabsTrigger value="user" className="text-xs">User Name</TabsTrigger>
+                                                <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
+                                            </TabsList>
+                                        </Tabs>
+
+                                        <div className="relative">
+                                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                                            <Input
+                                                placeholder={
+                                                    filterType === "name"
+                                                        ? "Search by filename..."
+                                                        : filterType === "user"
+                                                            ? "Search by user name..."
+                                                            : "Search by email..."
+                                                }
+                                                value={filterQuery}
+                                                onChange={(e) => setFilterQuery(e.target.value)}
+                                                className="pl-7 h-7 text-xs"
+                                            />
+                                            {filterQuery && (
+                                                <button
+                                                    onClick={() => setFilterQuery("")}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {pagination && (
+                                            <div className="text-[10px] text-muted-foreground space-y-1">
+                                                <div>
+                                                    Found: <span className="font-semibold">{pagination.total}</span> total documents
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </Card>
+                            )}
+
                             {isLoadingHistory ? (
                                 <Card className="border border-border/50">
                                     <div className="p-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
                                         <Loader2 className="w-3 h-3 animate-spin" />
-                                        Loading history...
+                                        Loading documents...
                                     </div>
                                 </Card>
                             ) : history.length > 0 ? (
-                                <div className="space-y-1">
-                                    {history.map((doc) => (
-                                        <Card
-                                            key={doc.id}
-                                            className="border border-border/50 hover:border-primary/50 hover:bg-accent/5 transition-all py-2 cursor-pointer group min-h-[40px]"
-                                            onClick={() => handleHistoryClick(doc)}
-                                        >
-                                            <div className="p-2 flex items-center gap-2">
-                                                <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
-                                                    <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+                                <>
+                                    <div className="space-y-1">
+                                        {history.map((doc) => (
+                                            <Card
+                                                key={doc.id}
+                                                className="border border-border/50 hover:border-primary/50 hover:bg-accent/5 transition-all py-2 cursor-pointer group min-h-[40px]"
+                                                onClick={() => handleHistoryClick(doc)}
+                                            >
+                                                <div className="p-2 flex items-center gap-2">
+                                                    <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
+                                                        <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
+                                                            {doc.file_name}
+                                                        </p>
+                                                        {isAdmin && doc.user_name && (
+                                                            <p className="text-[10px] text-muted-foreground truncate">
+                                                                {doc.user_name}
+                                                            </p>
+                                                        )}
+                                                        {isAdmin && doc.user_email && (
+                                                            <p className="text-[10px] text-muted-foreground truncate">
+                                                                {doc.user_email}
+                                                            </p>
+                                                        )}
+                                                        <p className="text-[10px] text-muted-foreground">
+                                                            {formatDate(doc.created_at)}
+                                                        </p>
+                                                    </div>
+                                                    <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
-                                                        {doc.file_name}
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {formatDate(doc.created_at)}
-                                                    </p>
+                                            </Card>
+                                        ))}
+                                    </div>
+
+                                    {/* Pagination Controls */}
+                                    {pagination && pagination.totalPages > 1 && (
+                                        <Card className="border border-border/50 bg-muted/20 p-2">
+                                            <div className="flex items-center justify-between gap-1">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 px-2"
+                                                    disabled={!pagination.hasPrevPage}
+                                                    onClick={() => fetchDocuments(currentPage - 1)}
+                                                >
+                                                    <ChevronLeft className="w-3 h-3" />
+                                                </Button>
+
+                                                <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-1 text-center">
+                                                    Page <span className="font-semibold">{pagination.page}</span> of <span className="font-semibold">{pagination.totalPages}</span>
                                                 </div>
-                                                <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
+
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 px-2"
+                                                    disabled={!pagination.hasNextPage}
+                                                    onClick={() => fetchDocuments(currentPage + 1)}
+                                                >
+                                                    <ChevronRight className="w-3 h-3" />
+                                                </Button>
                                             </div>
                                         </Card>
-                                    ))}
-                                </div>
+                                    )}
+                                </>
+                            ) : isAdmin && filterQuery ? (
+                                <Card className="border border-border/50 bg-muted/20">
+                                    <div className="p-3 text-center text-xs text-muted-foreground">
+                                        No documents match your filter
+                                    </div>
+                                </Card>
                             ) : (
                                 <Card className="border border-border/50 bg-muted/20">
                                     <div className="p-3 text-center text-xs text-muted-foreground">
@@ -464,6 +584,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                     </div>
                 </ScrollArea>
             </aside>
+
             <Dialog open={showLimitDialog} onOpenChange={setShowLimitDialog}>
                 <DialogContent>
                     <DialogHeader>
