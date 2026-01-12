@@ -301,7 +301,6 @@ export default function LoginPage() {
                             }}
                             className="w-full text-xs text-slate-600 hover:text-blue-600 transition"
                         >
-                            {isSignupMode ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}
                         </button>
                     </form>
                 </div>

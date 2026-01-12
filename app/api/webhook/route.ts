@@ -241,7 +241,7 @@ export async function POST(request: NextRequest) {
         const webhookResult = await webhookCollection.insertOne(webhookRecord)
         console.log("[WEBHOOK POST] ✅ Stored in webhook_responses")
 
-        // **SAVE TO DOCUMENTS IMMEDIATELY**
+        // **SAVE TO DOCUMENTS COLLECTION ONLY WHEN WEBHOOK HAS PARSED DATA (i.e., processing is complete)**
         if (payload.parsed_data && Object.keys(payload.parsed_data).length > 0) {
             console.log("[WEBHOOK POST] 💾 Saving to documents collection with user_email:", userEmail)
 
@@ -285,6 +285,7 @@ export async function POST(request: NextRequest) {
                         }
                     }
                 )
+                console.log("[WEBHOOK POST] ✅ Webhook marked as processed")
 
                 // **NEW: Create/update job_ids record**
                 const jobIdRecord = {

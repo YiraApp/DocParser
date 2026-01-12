@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
 import { getSessionUser } from "@/lib/auth-server"
-
+    
 export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams
         const page = Number.parseInt(searchParams.get("page") || "1")
-        const limit = Math.min(Number.parseInt(searchParams.get("limit") || "5"), 100)
+        const limit = Number.parseInt(searchParams.get("limit") || "5")
         const filterEmail = searchParams.get("filterEmail") || ""
         const filterName = searchParams.get("filterName") || ""
         const filterUser = searchParams.get("filterUser") || ""
@@ -28,19 +28,20 @@ export async function GET(request: NextRequest) {
         }
 
         const db = await getDatabase()
-        const jobCollection = db.collection("job_ids")
+        const documentsCollection = db.collection("documents")
         const usersCollection = db.collection("users")
 
         // Build filter: admins can filter, users see only their own
         let dbFilter: any = sessionUser.isAdmin ? {} : { user_email: sessionUser.email }
 
-        // Apply admin filters if provided
+        // Apply admin filters if provided - only filter on documents collection (processed data)
         if (sessionUser.isAdmin) {
             if (filterEmail) {
                 dbFilter.user_email = { $regex: filterEmail, $options: "i" }
             }
             if (filterUser) {
-                dbFilter.user_name = { $regex: filterUser, $options: "i" }
+                // Search by user name - need to join with users collection
+                // For now, we'll handle this in post-processing
             }
             if (filterName) {
                 dbFilter.file_name = { $regex: filterName, $options: "i" }
@@ -56,22 +57,35 @@ export async function GET(request: NextRequest) {
             userNameMap.set(user.email, user.name || user.email)
         })
 
-        // Get total count for pagination
-        const totalCount = await jobCollection.countDocuments(dbFilter)
+        // Get total count for pagination (before applying user name filter)
+        let totalCount = await documentsCollection.countDocuments(dbFilter)
+
+        // Fetch all matching documents first
+        const allDocuments = await documentsCollection
+            .find(dbFilter)
+            .sort({ created_at: -1 })
+            .toArray()
+
+        // Apply user name filter in post-processing if provided
+        let filteredDocuments = allDocuments
+        if (sessionUser.isAdmin && filterUser) {
+            filteredDocuments = allDocuments.filter((doc: any) => {
+                const userName = userNameMap.get(doc.user_email) || doc.user_email || ""
+                return userName.toLowerCase().includes(filterUser.toLowerCase())
+            })
+            totalCount = filteredDocuments.length
+        } else {
+            filteredDocuments = allDocuments
+        }
 
         // Calculate pagination
         const skip = (page - 1) * limit
         const totalPages = Math.ceil(totalCount / limit)
 
-        // Fetch paginated documents
-        const documents = await jobCollection
-            .find(dbFilter)
-            .sort({ created_at: -1 })
-            .skip(skip)
-            .limit(limit)
-            .toArray()
+        // Apply pagination
+        const paginatedDocuments = filteredDocuments.slice(skip, skip + limit)
 
-        const formattedDocuments = documents.map((doc: any) => ({
+        const formattedDocuments = paginatedDocuments.map((doc: any) => ({
             id: doc.job_id || doc._id?.toString(),
             job_id: doc.job_id,
             file_name: doc.file_name || "Unknown Document",

@@ -5,7 +5,7 @@ import { ResultsSection } from "@/components/results-section"
 import { HomeSearchPanel } from "@/components/home-search-panel"
 import { LeftSidebar } from "@/components/left-sidebar"
 import { Button } from "@/components/ui/button"
-import { Search, LogOut, User, Shield, UserPlus, X, AlertCircle, CheckCircle, Loader2, BarChart3 } from "lucide-react"
+import { Search, LogOut, User, Shield, UserPlus, X, AlertCircle, CheckCircle, Loader2, BarChart3, Eye, EyeOff } from "lucide-react"
 import Image from "next/image"
 import { useAuth } from "@/lib/auth-context"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,6 @@ import Link from "next/link"
 import { SearchInterface } from "../components/search-interface"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-
 export default function HomePage() {
     const [parsedDocument, setParsedDocument] = useState<any>(null)
     const [showResults, setShowResults] = useState(false)
@@ -28,17 +27,16 @@ export default function HomePage() {
     const [isCreating, setIsCreating] = useState(false)
     const [createName, setCreateName] = useState("")
     const [createPhoneNumber, setCreatePhoneNumber] = useState("")
+    const [showPassword, setShowPassword] = useState(false)
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const { user, logout, isAdmin, isLoading } = useAuth()
     const router = useRouter()
-
     useEffect(() => {
         if (isLoading) return
-
         if (!user) {
             router.push("/login")
         }
     }, [user, router, isLoading])
-
     if (isLoading || !user) {
         return (
             <div className="h-screen flex items-center justify-center bg-background">
@@ -49,19 +47,16 @@ export default function HomePage() {
             </div>
         )
     }
-
     const handleUploadSuccess = (document: any) => {
         setParsedDocument(document)
         setShowResults(true)
         setShowSearch(false)
     }
-
     const handleHistorySelect = (document: any) => {
         setParsedDocument(document)
         setShowResults(true)
         setShowSearch(false)
     }
-
     const handleSearchDocumentSelect = (document: any) => {
         const transformedDocument = {
             id: document.id,
@@ -76,30 +71,24 @@ export default function HomePage() {
             confidenceScore: document.confidence_score || document.confidenceScore || 0,
             healthRecommendations: document.health_recommendations || document.healthRecommendations || null,
         }
-
         setParsedDocument(transformedDocument)
         setShowResults(true)
         setShowSearch(false)
     }
-
     const handleNewUpload = () => {
         setParsedDocument(null)
         setShowResults(false)
     }
-
     const handleCloseResults = () => {
         setParsedDocument(null)
         setShowResults(false)
     }
-
     const handleSearchToggle = () => {
         setShowSearch(prev => !prev)
     }
-
     const handleLogout = () => {
         logout()
     }
-
     const handleCreateAccountClick = () => {
         setShowCreateAccount(true)
         setCreateEmail("")
@@ -110,23 +99,24 @@ export default function HomePage() {
         setCreateRole("user")
         setCreateError("")
         setCreateSuccess(false)
+        setShowPassword(false)
+        setShowConfirmPassword(false)
     }
-
     const handleCreateAccountSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setCreateError("")
         setCreateSuccess(false)
-        
+
         if (!createEmail || !createPassword || !createConfirmPassword || !createName || !createPhoneNumber) {
             setCreateError("All fields are required")
             return
         }
-        
+
         if (!createPhoneNumber.replace(/\D/g, "").match(/^\d{10}$/)) {
             setCreateError("Phone number must be exactly 10 digits")
             return
         }
-        
+
         if (createPassword !== createConfirmPassword) {
             setCreateError("Passwords do not match")
             return
@@ -164,7 +154,8 @@ export default function HomePage() {
             setCreateName("")
             setCreatePhoneNumber("")
             setCreateRole("user")
-
+            setShowPassword(false)
+            setShowConfirmPassword(false)
             setTimeout(() => {
                 setShowCreateAccount(false)
             }, 2000)
@@ -174,7 +165,6 @@ export default function HomePage() {
             setIsCreating(false)
         }
     }
-
     return (
         <div className="h-screen flex flex-col overflow-hidden bg-background">
             {/* HEADER */}
@@ -290,7 +280,7 @@ export default function HomePage() {
             {/* CREATE ACCOUNT MODAL */}
             {showCreateAccount && (
                 <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6 space-y-4">
+                    <div className="bg-white rounded-lg shadow-lg max-w-md w-full max-h-[80vh] overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 scrollbar-thumb-rounded-full scrollbar-track-rounded-full">
                         {/* Header */}
                         <div className="flex items-center justify-between">
                             <h2 className="text-xl font-semibold">Create New Account</h2>
@@ -356,26 +346,44 @@ export default function HomePage() {
                             {/* Password */}
                             <div className="space-y-2">
                                 <Label htmlFor="create-password" className="text-sm font-medium">Password</Label>
-                                <Input
-                                    id="create-password"
-                                    type="password"
-                                    placeholder="Enter password"
-                                    value={createPassword}
-                                    onChange={(e) => setCreatePassword(e.target.value)}
-                                    required
-                                />
+                                <div className="relative">
+                                    <Input
+                                        id="create-password"
+                                        type={showPassword ? "text" : "password"}
+                                        placeholder="Enter password"
+                                        value={createPassword}
+                                        onChange={(e) => setCreatePassword(e.target.value)}
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    >
+                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
                             </div>
                             {/* Confirm Password */}
                             <div className="space-y-2">
                                 <Label htmlFor="create-confirm-password" className="text-sm font-medium">Confirm Password</Label>
-                                <Input
-                                    id="create-confirm-password"
-                                    type="password"
-                                    placeholder="Confirm password"
-                                    value={createConfirmPassword}
-                                    onChange={(e) => setCreateConfirmPassword(e.target.value)}
-                                    required
-                                />
+                                <div className="relative">
+                                    <Input
+                                        id="create-confirm-password"
+                                        type={showConfirmPassword ? "text" : "password"}
+                                        placeholder="Confirm password"
+                                        value={createConfirmPassword}
+                                        onChange={(e) => setCreateConfirmPassword(e.target.value)}
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    >
+                                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
                             </div>
                             {/* Full Name Field */}
                             <div className="space-y-2">
