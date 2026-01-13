@@ -445,17 +445,17 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                 </h3>
                             </div>
 
-                            {/* Filter Section - Only for Admins */}
-                            {isAdmin && history.length > 0 && (
+                            {/* Filter Section - For Admins (show always when admin, not just when history exists) */}
+                            {isAdmin && (
                                 <Card className="border border-border/50 bg-muted/20 p-2">
                                     <div className="space-y-2">
                                         <Tabs defaultValue="name" value={filterType} onValueChange={(value) => setFilterType(value as "name" | "email" | "user")}>
-                                            <TabsList className="grid w-full grid-cols-3 h-7">
-                                                <TabsTrigger value="name" className="text-xs">File Name</TabsTrigger>
-                                                <TabsTrigger value="user" className="text-xs">User Name</TabsTrigger>
-                                                <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
-                                            </TabsList>
-                                        </Tabs>
+                                                    <TabsList className="grid w-full grid-cols-3 h-7">
+                                                        <TabsTrigger value="name" className="text-xs">File Name</TabsTrigger>
+                                                        <TabsTrigger value="user" className="text-xs">User Name</TabsTrigger>
+                                                        <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
+                                                    </TabsList>
+                                                </Tabs>
 
                                         <div className="relative">
                                             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
@@ -500,83 +500,78 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                     </div>
                                 </Card>
                             ) : history.length > 0 ? (
-                                <>
-                                    <div className="space-y-1">
-                                        {history.map((doc) => (
-                                            <Card
-                                                key={doc.id}
-                                                className="border border-border/50 hover:border-primary/50 hover:bg-accent/5 transition-all py-2 cursor-pointer group min-h-[40px]"
-                                                onClick={() => handleHistoryClick(doc)}
-                                            >
-                                                <div className="p-2 flex items-center gap-2">
-                                                    <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
-                                                        <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
-                                                            {doc.file_name}
-                                                        </p>
-                                                        {isAdmin && doc.user_name && (
-                                                            <p className="text-[10px] text-muted-foreground truncate">
-                                                                {doc.user_name}
-                                                            </p>
-                                                        )}
-                                                        {isAdmin && doc.user_email && (
-                                                            <p className="text-[10px] text-muted-foreground truncate">
-                                                                {doc.user_email}
-                                                            </p>
-                                                        )}
-                                                        <p className="text-[10px] text-muted-foreground">
-                                                            {formatDate(doc.created_at)}
-                                                        </p>
-                                                    </div>
-                                                    <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
+                                <div className="space-y-1">
+                                    {history.map((doc) => (
+                                        <Card
+                                            key={doc.id}
+                                            className="border border-border/50 hover:border-primary/50 hover:bg-accent/5 transition-all py-2 cursor-pointer group min-h-[40px]"
+                                            onClick={() => handleHistoryClick(doc)}
+                                        >
+                                            <div className="p-2 flex items-center gap-2">
+                                                <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
+                                                    <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
                                                 </div>
-                                            </Card>
-                                        ))}
-                                    </div>
-
-                                    {/* Pagination Controls */}
-                                    {pagination && pagination.totalPages > 1 && (
-                                        <Card className="border border-border/50 bg-muted/20 p-2">
-                                            <div className="flex items-center justify-between gap-1">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-7 px-2"
-                                                    disabled={!pagination.hasPrevPage}
-                                                    onClick={() => fetchDocuments(currentPage - 1)}
-                                                >
-                                                    <ChevronLeft className="w-3 h-3" />
-                                                </Button>
-
-                                                <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-1 text-center">
-                                                    Page <span className="font-semibold">{pagination.page}</span> of <span className="font-semibold">{pagination.totalPages}</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
+                                                        {doc.file_name}
+                                                    </p>
+                                                    {isAdmin && doc.user_name && (
+                                                        <p className="text-[10px] text-muted-foreground truncate">
+                                                            {doc.user_name}
+                                                        </p>
+                                                    )}
+                                                    {isAdmin && doc.user_email && (
+                                                        <p className="text-[10px] text-muted-foreground truncate">
+                                                            {doc.user_email}
+                                                        </p>
+                                                    )}
+                                                    <p className="text-[10px] text-muted-foreground">
+                                                        {formatDate(doc.created_at)}
+                                                    </p>
                                                 </div>
-
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-7 px-2"
-                                                    disabled={!pagination.hasNextPage}
-                                                    onClick={() => fetchDocuments(currentPage + 1)}
-                                                >
-                                                    <ChevronRight className="w-3 h-3" />
-                                                </Button>
+                                                <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
                                             </div>
                                         </Card>
-                                    )}
-                                </>
-                            ) : isAdmin && filterQuery ? (
-                                <Card className="border border-border/50 bg-muted/20">
-                                    <div className="p-3 text-center text-xs text-muted-foreground">
-                                        No documents match your filter
+                                    ))}
+                                </div>
+                            ) : null}
+
+                            {/* Pagination Controls */}
+                            {pagination && pagination.totalPages > 1 && history.length > 0 && (
+                                <Card className="border border-border/50 bg-muted/20 p-2">
+                                    <div className="flex items-center justify-between gap-1">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-2"
+                                            disabled={!pagination.hasPrevPage}
+                                            onClick={() => fetchDocuments(currentPage - 1)}
+                                        >
+                                            <ChevronLeft className="w-3 h-3" />
+                                        </Button>
+
+                                        <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-1 text-center">
+                                            Page <span className="font-semibold">{pagination.page}</span> of <span className="font-semibold">{pagination.totalPages}</span>
+                                        </div>
+
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-2"
+                                            disabled={!pagination.hasNextPage}
+                                            onClick={() => fetchDocuments(currentPage + 1)}
+                                        >
+                                            <ChevronRight className="w-3 h-3" />
+                                        </Button>
                                     </div>
                                 </Card>
-                            ) : (
+                            )}
+
+                            {/* Empty State Messages */}
+                            {!isLoadingHistory && history.length === 0 && (
                                 <Card className="border border-border/50 bg-muted/20">
                                     <div className="p-3 text-center text-xs text-muted-foreground">
-                                        No recent documents
+                                        {isAdmin && filterQuery ? "No documents match your filter" : "No recent documents"}
                                     </div>
                                 </Card>
                             )}

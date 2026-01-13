@@ -295,6 +295,7 @@ export async function POST(request: NextRequest) {
                     document_type: "Medical Report",
                     status: payload.status || "completed",
                     user_email: userEmail,
+                    user_name: jobRecord?.user_name || "anonymous",
                     document_id: docResult.insertedId.toString(),
                     created_at: new Date(),
                     updated_at: new Date(),

@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
         const fileName = formData.get('file') instanceof File
             ? (formData.get('file') as File).name
             : 'unknown'
+        
         // Build external API URL with webhook URL as query parameter
         const baseUrl = 'https://api.yira.ai/v1/tenants/testing-id-1-1ae6/projects/bd760a58-2d44-4089-b471-cc046ea0a70d/reports'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -37,9 +38,20 @@ export async function POST(req: NextRequest) {
             )
         }
         const externalData = await externalResponse.json()
+        
         // Connect to MongoDB and store job_id with user info
         const db = await getDatabase()
         const jobCollection = db.collection('job_ids')
+        const usersCollection = db.collection('users')
+
+        // Fetch user name from users table
+        let userName = 'anonymous'
+        if (userEmail !== 'anonymous') {
+            const user = await usersCollection.findOne({ email: userEmail })
+            if (user?.name) {
+                userName = user.name
+            }
+        }
 
         const jobRecord = {
             job_id: externalData.job_id,
@@ -49,6 +61,7 @@ export async function POST(req: NextRequest) {
             timestamp: externalData.timestamp,
             user_id: userId,
             user_email: userEmail,
+            user_name: userName,
             user_role: userRole,
             file_name: fileName,
             patient_name: null, // Will be updated when webhook arrives
@@ -58,7 +71,7 @@ export async function POST(req: NextRequest) {
             updated_at: new Date(),
         }
         const result = await jobCollection.insertOne(jobRecord)
-        console.log('[UPLOAD] Stored job record:', result.insertedId)
+        console.log('[UPLOAD] Stored job record with user_name:', userName, 'ID:', result.insertedId)
         // Return the external response data with id as job_id
         return NextResponse.json({
             ...externalData,
