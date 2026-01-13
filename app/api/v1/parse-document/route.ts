@@ -28,8 +28,7 @@ async function authenticateTenant(apiKey: string | null) {
                 is_active: true,
                 webhook_url: process.env.DEFAULT_WEBHOOK_URL || "http://74.225.14.24:3029/api/webhook",
                 tier: "basic",
-            
-
+            },
         }
     }
 
