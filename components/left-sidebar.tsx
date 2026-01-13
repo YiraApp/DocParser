@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import type React from "react"
 import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
@@ -248,64 +248,38 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             }
             const data = await response.json()
             console.log("[LeftSidebar] Upload success, ID:", data.id)
-            setProgressMessage("Retrieving document data...")
-            const fullDataResponse = await fetch(`/api/parse-document?id=${data.id}`)
-            if (!fullDataResponse.ok) {
-                const errorMsg = await fullDataResponse.json().catch(() => ({ error: "Document retrieval failed" }))
-                console.warn("[LeftSidebar] Document not yet available, using partial data:", errorMsg)
-                const partialData = {
-                    id: data.id,
-                    fileName: file.name,
-                    fileUrl: undefined,
-                    uploadedAt: new Date().toISOString(),
-                    documentType: "Medical Document",
-                    fields: [],
-                    summary: "",
-                    notes: [],
-                    structuredData: {},
-                    confidenceScore: undefined,
-                    healthRecommendations: undefined,
-                    jobId: data.job_id,
-                    reportId: data.report_id,
-                    status: "processing",
-                }
-                setProgressMessage("Complete!")
-                setUploadProgress(100)
-                await new Promise((resolve) => setTimeout(resolve, 500))
-                incrementUploadCount()
-                setFile(null)
-                setUploadProgress(0)
-                setProgressMessage("")
-                fetchDocuments(1)
-                onUploadSuccess(partialData)
-                return
-            }
-            const fullData = await fullDataResponse.json()
-            console.log("[LeftSidebar] Full document data retrieved:", fullData)
-            const formattedData = {
-                id: fullData.id,
-                fileName: fullData.fileName || file.name,
-                fileUrl: fullData.fileUrl,
-                uploadedAt: fullData.uploadedAt,
-                documentType: fullData.documentType || "Medical Document",
-                fields: fullData.fields || [],
-                summary: fullData.summary || "",
-                notes: fullData.notes || [],
-                structuredData: fullData.structuredData,
-                confidenceScore: fullData.confidenceScore,
-                healthRecommendations: fullData.healthRecommendations,
-                jobId: fullData.jobId,
-                reportId: fullData.reportId,
-            }
+
             setProgressMessage("Complete!")
             setUploadProgress(100)
             await new Promise((resolve) => setTimeout(resolve, 500))
+
+            // Create processing document object to show spinner on main page
+            const processingDocument = {
+                id: data.id,
+                fileName: file.name,
+                fileUrl: undefined,
+                uploadedAt: new Date().toISOString(),
+                documentType: "Medical Document",
+                fields: [],
+                summary: "",
+                notes: [],
+                structuredData: {},
+                confidenceScore: undefined,
+                healthRecommendations: undefined,
+                jobId: data.job_id,
+                reportId: data.report_id,
+                status: "processing",
+            }
+
             incrementUploadCount()
             setFile(null)
             setUploadProgress(0)
             setProgressMessage("")
             fetchDocuments(1)
-            onUploadSuccess(formattedData)
+
+            // Pass processing document to parent - will show spinner
+            onUploadSuccess(processingDocument)
+
         } catch (error) {
             console.error("[LeftSidebar] Upload error:", error)
             alert(error instanceof Error ? error.message : "Failed to upload. Please try again.")
@@ -315,7 +289,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
             setIsUploading(false)
         }
     }
-
     return (
         <>
             <aside className="w-80 h-[calc(100vh-64px)] overflow-hidden bg-gradient-to-b from-background to-muted/10 border-r border-border/40 flex flex-col z-10">

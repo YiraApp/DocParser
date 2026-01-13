@@ -1218,7 +1218,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                             </div>
                         </Card>
                     )}
-                    {document?.structuredData?.medical?.labResults && document.structuredData.medical.labResults.length > 0 && (
+                    {document?.structuredData?.clinicalData?.labResults && document.structuredData.clinicalData.labResults.length > 0 && (
                         <Card className="border border-violet-500/20 bg-violet-500/5 shadow-sm">
                             <div className="p-4 space-y-4">
                                 <div className="flex items-center gap-2">
@@ -1233,7 +1233,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     </div>
                                 </div>
                                 <div className="grid gap-2">
-                                    {document.structuredData.medical.labResults.map((result: any, index: number) => {
+                                    {document.structuredData.clinicalData.labResults.map((result: any, index: number) => {
                                         const getStatusColor = (status: string) => {
                                             if (!status) return "text-gray-600 bg-gray-500/10 border-gray-500/20"
                                             const statusLower = status.toLowerCase()
