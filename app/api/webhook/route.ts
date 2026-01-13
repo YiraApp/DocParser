@@ -213,14 +213,17 @@ export async function POST(request: NextRequest) {
         const documentsCollection = db.collection("documents")
         const jobCollection = db.collection("job_ids")
 
-        // **FETCH USER EMAIL FROM job_ids**
+        // **FETCH USER EMAIL AND FILENAME FROM job_ids**
         let userEmail = "anonymous"
+        let actualFileName = `Document_${payload.job_id}` // fallback
         const jobRecord = await jobCollection.findOne({ job_id: payload.job_id })
         if (jobRecord) {
             userEmail = jobRecord.user_email || "anonymous"
+            actualFileName = jobRecord.file_name || actualFileName // Use actual filename
             console.log("[WEBHOOK POST] Found user_email from job record:", userEmail)
+            console.log("[WEBHOOK POST] Found file_name from job record:", actualFileName)
         } else {
-            console.warn("[WEBHOOK POST] ⚠️ Job record not found, using anonymous")
+            console.warn("[WEBHOOK POST] ⚠️ Job record not found, using defaults")
         }
 
         // Store in webhook_responses
@@ -248,7 +251,7 @@ export async function POST(request: NextRequest) {
             const documentRecord = {
                 job_id: payload.job_id,
                 report_id: payload.report_id || payload.job_id,
-                file_name: `Document_${payload.job_id}`,
+                file_name: actualFileName, // Use actual filename instead of generating
                 file_type: "medical_report",
                 file_size: 0,
                 document_type: "Medical Report",
@@ -287,26 +290,19 @@ export async function POST(request: NextRequest) {
                 )
                 console.log("[WEBHOOK POST] ✅ Webhook marked as processed")
 
-                // **NEW: Create/update job_ids record**
-                const jobIdRecord = {
-                    job_id: payload.job_id,
-                    report_id: payload.report_id || payload.job_id,
-                    file_name: `Document_${payload.job_id}`,
-                    document_type: "Medical Report",
-                    status: payload.status || "completed",
-                    user_email: userEmail,
-                    user_name: jobRecord?.user_name || "anonymous",
-                    document_id: docResult.insertedId.toString(),
-                    created_at: new Date(),
-                    updated_at: new Date(),
-                }
-
+                // **Update job_ids record with document_id and preserve filename**
                 await jobCollection.updateOne(
                     { job_id: payload.job_id },
-                    { $set: jobIdRecord },
-                    { upsert: true }
+                    {
+                        $set: {
+                            status: payload.status || "completed",
+                            document_id: docResult.insertedId.toString(),
+                            parsed_data: payload.parsed_data,
+                            updated_at: new Date(),
+                        }
+                    }
                 )
-                console.log("[WEBHOOK POST] ✅ Job ID record created/updated in job_ids collection")
+                console.log("[WEBHOOK POST] ✅ Job ID record updated with document_id")
 
             } catch (docError) {
                 console.error("[WEBHOOK POST] ❌ Error saving to documents:", docError)

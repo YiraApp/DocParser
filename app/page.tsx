@@ -394,9 +394,7 @@ export default function HomePage() {
                                     </div>
                                     <div className="space-y-3">
                                         <Progress value={100} className="h-2" />
-                                        <p className="text-sm text-center text-blue-600 dark:text-blue-300 font-medium">
-                                            AI is analyzing your document...
-                                        </p>
+                                       
                                     </div>
                                 </div>
                             </Card>
