@@ -4,78 +4,72 @@ import { getSessionUser } from "@/lib/auth-server"
 
 export async function GET(request: NextRequest) {
     try {
-        const searchParams = request.nextUrl.searchParams
-        const limit = Number.parseInt(searchParams.get("limit") || "10")
-        // Get session user to check role
         const sessionUser = await getSessionUser(request)
         if (!sessionUser) {
-            return NextResponse.json(
-                { error: "Unauthorized" },
-                { status: 401 }
-            )
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
+
+        const jobId = request.nextUrl.searchParams.get("job_id")
+
         const db = await getDatabase()
         const documentsCollection = db.collection("documents")
-        const jobCollection = db.collection("job_ids")
-        // Build filter: admins see all, users see only their own
-        const userFilter = sessionUser.isAdmin ? {} : { user_email: sessionUser.email }
-        // Fetch from both collections and merge
-        const [documents, jobRecords] = await Promise.all([
-            documentsCollection
-                .find(userFilter)
-                .sort({ created_at: -1 })
-                .toArray(),
-            jobCollection
-                .find(userFilter)
-                .sort({ created_at: -1 })
-                .toArray(),
-        ])
-        console.log("[DOCUMENTS] Found documents:", documents.length, "jobs:", jobRecords.length)
-        // Combine and sort by date
-        const allRecords = [
-            ...documents.map((doc: any) => ({
-                id: doc.job_id || doc._id?.toString(),  // Prioritize job_id
-                file_name: doc.file_name || "Unknown Document",
-                created_at: doc.created_at || new Date().toISOString(),
-                structured_data: doc.parsed_data || doc.structured_data || {},
-                job_id: doc.job_id,
-                report_id: doc.report_id,
-                document_type: doc.document_type || "Medical Report",
-                status: doc.status || "unknown",
-                user_email: doc.user_email,
-            })),
-            ...jobRecords.map((job: any) => ({
-                id: job.job_id || job._id?.toString(),  // Prioritize job_id
-                file_name: job.file_name || "Unknown Document",
-                created_at: job.created_at || new Date().toISOString(),
-                structured_data: job.parsed_data || {},
-                job_id: job.job_id,
-                report_id: job.report_id,
-                document_type: job.document_type || "Medical Report",
-                status: job.status || "processing",
-                user_email: job.user_email,
-            })),
-        ]
-        // Sort by date and remove duplicates
-        const seen = new Set()
-        const uniqueRecords = allRecords
-            .sort(
-                (a, b) =>
-                    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            )
-            .filter((record) => {
-                const key = record.job_id || record.id
-                if (seen.has(key)) return false
-                seen.add(key)
-                return true
+
+        if (jobId) {
+            // Fetch by job_id
+            const document = await documentsCollection.findOne({
+                job_id: jobId,
+                user_email: sessionUser.email
             })
-            .slice(0, limit)
-        console.log("[DOCUMENTS] Returning", uniqueRecords.length, "unique records")
-        return NextResponse.json({ documents: uniqueRecords })
+
+            if (!document) {
+                return NextResponse.json(
+                    { document: null },
+                    { status: 200 }
+                )
+            }
+
+            return NextResponse.json({
+                document: {
+                    _id: document._id.toString(),
+                    file_name: document.file_name,
+                    file_url: document.file_url || null,
+                    created_at: document.created_at,
+                    document_type: document.document_type,
+                    fields: document.fields || [],
+                    summary: document.summary || "",
+                    notes: document.notes || [],
+                    structured_data: document.structured_data || {},
+                    confidence_score: document.confidence_score || 85,
+                    health_recommendations: document.health_recommendations || null,
+                }
+            })
+        }
+
+        // Fetch all documents for user (existing functionality)
+        const documents = await documentsCollection
+            .find({ user_email: sessionUser.email })
+            .sort({ created_at: -1 })
+            .limit(50)
+            .toArray()
+
+        return NextResponse.json({
+            documents: documents.map((doc: any) => ({
+                _id: doc._id.toString(),
+                file_name: doc.file_name,
+                file_url: doc.file_url || null,
+                created_at: doc.created_at,
+                document_type: doc.document_type,
+                fields: doc.fields || [],
+                summary: doc.summary || "",
+                notes: doc.notes || [],
+                structured_data: doc.structured_data || {},
+                confidence_score: doc.confidence_score || 85,
+            }))
+        })
     } catch (error) {
-        console.error("[DOCUMENTS] Error:", error)
+        console.error("[DOCUMENTS GET] Error:", error)
         return NextResponse.json(
-            { error: "Internal server error", details: error instanceof Error ? error.message : "Unknown" },
+            { error: "Failed to fetch documents" },
             { status: 500 }
         )
     }

@@ -5,7 +5,7 @@ import { ResultsSection } from "@/components/results-section"
 import { HomeSearchPanel } from "@/components/home-search-panel"
 import { LeftSidebar } from "@/components/left-sidebar"
 import { Button } from "@/components/ui/button"
-import { Search, LogOut, User, Shield, UserPlus, X, AlertCircle, CheckCircle, Loader2, BarChart3 } from "lucide-react"
+import { Search, LogOut, User, Shield, UserPlus, X, AlertCircle, CheckCircle, Loader2, BarChart3, Eye, EyeOff } from "lucide-react"
 import Image from "next/image"
 import { useAuth } from "@/lib/auth-context"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +13,15 @@ import Link from "next/link"
 import { SearchInterface } from "../components/search-interface"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Card } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+
+interface ProcessingState {
+    isProcessing: boolean
+    fileName: string
+    documentId: string
+    jobId: string
+}
 
 export default function HomePage() {
     const [parsedDocument, setParsedDocument] = useState<any>(null)
@@ -28,16 +37,94 @@ export default function HomePage() {
     const [isCreating, setIsCreating] = useState(false)
     const [createName, setCreateName] = useState("")
     const [createPhoneNumber, setCreatePhoneNumber] = useState("")
+    const [showPassword, setShowPassword] = useState(false)
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+    const [processingState, setProcessingState] = useState<ProcessingState>({
+        isProcessing: false,
+        fileName: "",
+        documentId: "",
+        jobId: "",
+    })
     const { user, logout, isAdmin, isLoading } = useAuth()
     const router = useRouter()
 
     useEffect(() => {
         if (isLoading) return
-
         if (!user) {
             router.push("/login")
         }
     }, [user, router, isLoading])
+
+    // Poll for document completion when processing
+    useEffect(() => {
+        if (!processingState.isProcessing || !processingState.documentId) return
+
+        let pollAttempts = 0
+        const maxAttempts = 240 // 4 minutes with 1-second intervals
+
+        const pollInterval = setInterval(async () => {
+            pollAttempts++
+            console.log(`[PAGE] Polling for document... (attempt ${pollAttempts}/${maxAttempts})`)
+
+            try {
+                const response = await fetch(`/api/parse-document?id=${processingState.documentId}`)
+                if (response.ok) {
+                    const fullData = await response.json()
+                    // Check if document has structured data (webhook has processed it)
+                    if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
+                        console.log("[PAGE] Document ready! Loading results...")
+
+                        const formattedData = {
+                            id: fullData.id || processingState.documentId,
+                            fileName: fullData.fileName || processingState.fileName,
+                            fileUrl: fullData.fileUrl,
+                            uploadedAt: fullData.uploadedAt || new Date().toISOString(),
+                            documentType: fullData.documentType || "Medical Document",
+                            fields: fullData.fields || [],
+                            summary: fullData.summary || "",
+                            notes: fullData.notes || [],
+                            structuredData: fullData.structuredData || {},
+                            confidenceScore: fullData.confidenceScore,
+                            healthRecommendations: fullData.healthRecommendations,
+                            jobId: processingState.jobId,
+                        }
+
+                        // Update parsed document and show results view
+                        setParsedDocument(formattedData)
+                        setShowResults(true)
+
+                        // Clear processing state
+                        setProcessingState({
+                            isProcessing: false,
+                            fileName: "",
+                            documentId: "",
+                            jobId: "",
+                        })
+
+                        clearInterval(pollInterval)
+                        return
+                    }
+                }
+            } catch (err) {
+                console.error("[PAGE] Polling error:", err)
+            }
+
+            // Stop polling after max attempts
+            if (pollAttempts >= maxAttempts) {
+                console.warn("[PAGE] Max polling attempts reached")
+                setProcessingState({
+                    isProcessing: false,
+                    fileName: "",
+                    documentId: "",
+                    jobId: "",
+                })
+                clearInterval(pollInterval)
+                alert("Document processing took too long. Please try again.")
+            }
+        }, 1000)
+
+        return () => clearInterval(pollInterval)
+    }, [processingState.isProcessing, processingState.documentId])
 
     if (isLoading || !user) {
         return (
@@ -51,9 +138,20 @@ export default function HomePage() {
     }
 
     const handleUploadSuccess = (document: any) => {
-        setParsedDocument(document)
-        setShowResults(true)
-        setShowSearch(false)
+        // If document is still processing, show spinner
+        if (document.status === "processing") {
+            setProcessingState({
+                isProcessing: true,
+                fileName: document.fileName,
+                documentId: document.id,
+                jobId: document.jobId,
+            })
+        } else {
+            // Otherwise show results immediately
+            setParsedDocument(document)
+            setShowResults(true)
+            setShowSearch(false)
+        }
     }
 
     const handleHistorySelect = (document: any) => {
@@ -76,7 +174,6 @@ export default function HomePage() {
             confidenceScore: document.confidence_score || document.confidenceScore || 0,
             healthRecommendations: document.health_recommendations || document.healthRecommendations || null,
         }
-
         setParsedDocument(transformedDocument)
         setShowResults(true)
         setShowSearch(false)
@@ -85,11 +182,23 @@ export default function HomePage() {
     const handleNewUpload = () => {
         setParsedDocument(null)
         setShowResults(false)
+        setProcessingState({
+            isProcessing: false,
+            fileName: "",
+            documentId: "",
+            jobId: "",
+        })
     }
 
     const handleCloseResults = () => {
         setParsedDocument(null)
         setShowResults(false)
+        setProcessingState({
+            isProcessing: false,
+            fileName: "",
+            documentId: "",
+            jobId: "",
+        })
     }
 
     const handleSearchToggle = () => {
@@ -110,23 +219,25 @@ export default function HomePage() {
         setCreateRole("user")
         setCreateError("")
         setCreateSuccess(false)
+        setShowPassword(false)
+        setShowConfirmPassword(false)
     }
 
     const handleCreateAccountSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setCreateError("")
         setCreateSuccess(false)
-        
+
         if (!createEmail || !createPassword || !createConfirmPassword || !createName || !createPhoneNumber) {
             setCreateError("All fields are required")
             return
         }
-        
+
         if (!createPhoneNumber.replace(/\D/g, "").match(/^\d{10}$/)) {
             setCreateError("Phone number must be exactly 10 digits")
             return
         }
-        
+
         if (createPassword !== createConfirmPassword) {
             setCreateError("Passwords do not match")
             return
@@ -164,7 +275,8 @@ export default function HomePage() {
             setCreateName("")
             setCreatePhoneNumber("")
             setCreateRole("user")
-
+            setShowPassword(false)
+            setShowConfirmPassword(false)
             setTimeout(() => {
                 setShowCreateAccount(false)
             }, 2000)
@@ -259,7 +371,35 @@ export default function HomePage() {
                     onHistorySelect={handleHistorySelect}
                 />
                 <main className="flex-1 overflow-y-auto">
-                    {showResults ? (
+                    {processingState.isProcessing ? (
+                        <div className="flex items-center justify-center min-h-full p-6">
+                            <Card className="border border-blue-500/20 bg-blue-50 dark:bg-blue-950/30 shadow-lg max-w-md w-full">
+                                <div className="p-8 space-y-6">
+                                    <div className="flex items-center justify-center">
+                                        <div className="relative">
+                                            <div className="absolute inset-0 bg-blue-600/20 rounded-full blur-xl animate-pulse"></div>
+                                            <Loader2 className="w-16 h-16 animate-spin text-blue-600 relative z-10" />
+                                        </div>
+                                    </div>
+                                    <div className="text-center space-y-3">
+                                        <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
+                                            {processingState.fileName}
+                                        </p>
+                                        <p className="text-base font-medium text-blue-700 dark:text-blue-200">
+                                            ✓ File uploaded successfully
+                                        </p>
+                                        <p className="text-sm text-blue-600 dark:text-blue-300">
+                                            ⏳ Processing started. Results will be available shortly (3–4 mins)
+                                        </p>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <Progress value={100} className="h-2" />
+                                       
+                                    </div>
+                                </div>
+                            </Card>
+                        </div>
+                    ) : showResults ? (
                         <div className="p-4 sm:p-6">
                             <ResultsSection
                                 document={parsedDocument}
@@ -290,7 +430,7 @@ export default function HomePage() {
             {/* CREATE ACCOUNT MODAL */}
             {showCreateAccount && (
                 <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6 space-y-4">
+                    <div className="bg-white rounded-lg shadow-lg max-w-md w-full max-h-[80vh] overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 scrollbar-thumb-rounded-full scrollbar-track-rounded-full">
                         {/* Header */}
                         <div className="flex items-center justify-between">
                             <h2 className="text-xl font-semibold">Create New Account</h2>
@@ -356,26 +496,44 @@ export default function HomePage() {
                             {/* Password */}
                             <div className="space-y-2">
                                 <Label htmlFor="create-password" className="text-sm font-medium">Password</Label>
-                                <Input
-                                    id="create-password"
-                                    type="password"
-                                    placeholder="Enter password"
-                                    value={createPassword}
-                                    onChange={(e) => setCreatePassword(e.target.value)}
-                                    required
-                                />
+                                <div className="relative">
+                                    <Input
+                                        id="create-password"
+                                        type={showPassword ? "text" : "password"}
+                                        placeholder="Enter password"
+                                        value={createPassword}
+                                        onChange={(e) => setCreatePassword(e.target.value)}
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    >
+                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
                             </div>
                             {/* Confirm Password */}
                             <div className="space-y-2">
                                 <Label htmlFor="create-confirm-password" className="text-sm font-medium">Confirm Password</Label>
-                                <Input
-                                    id="create-confirm-password"
-                                    type="password"
-                                    placeholder="Confirm password"
-                                    value={createConfirmPassword}
-                                    onChange={(e) => setCreateConfirmPassword(e.target.value)}
-                                    required
-                                />
+                                <div className="relative">
+                                    <Input
+                                        id="create-confirm-password"
+                                        type={showConfirmPassword ? "text" : "password"}
+                                        placeholder="Confirm password"
+                                        value={createConfirmPassword}
+                                        onChange={(e) => setCreateConfirmPassword(e.target.value)}
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    >
+                                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
                             </div>
                             {/* Full Name Field */}
                             <div className="space-y-2">
