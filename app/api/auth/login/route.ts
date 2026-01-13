@@ -45,15 +45,15 @@ export async function POST(request: NextRequest) {
         }
 
         // Get actual upload count from job_ids collection
-        let uploadCount = 0
+        let uploadCount = 0;
         if (user.role !== "admin") {
             const count = await jobIdsCollection.countDocuments({
                 user_email: user.email
-            })
-            uploadCount = count || 0
-            console.log(`[LOGIN] User ${user.email} has ${uploadCount} documents in job_ids`)
+            });
+            uploadCount = count || 0;
+            console.log(`[LOGIN] User ${user.email} has ${uploadCount} documents in job_ids`);
         } else {
-            uploadCount = -1 // Admins have unlimited uploads
+            uploadCount = -1; // Admins have unlimited uploads
         }
 
         // Create session cookie
@@ -71,13 +71,21 @@ export async function POST(request: NextRequest) {
             user: sessionData,
         });
 
+        // Determine if secure cookie should be used
+        // For HTTP deployments, set secure: false
+        const protocol = request.headers.get('x-forwarded-proto') || 'http';
+        const isSecure = protocol === 'https';
+
         // Set session cookie
         response.cookies.set("yira_session", JSON.stringify(sessionData), {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: isSecure,
+            sameSite: isSecure ? "strict" : "lax",
             maxAge: 7 * 24 * 60 * 60, // 7 days
+            path: "/",
         });
+
+        console.log(`[LOGIN] Session cookie set (secure=${isSecure}) for user: ${email}`);
 
         return response;
     } catch (error) {

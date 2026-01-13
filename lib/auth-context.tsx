@@ -33,14 +33,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         const initializeAuth = async () => {
             try {
-                // Check server-side session first via /api/auth/me
+                console.log("[Auth] Initializing auth state...");
+                
+                // Always check server-side session via /api/auth/me
+                // httpOnly cookies cannot be read from JavaScript, so we need the server to verify
                 const res = await fetch('/api/auth/me', {
-                    credentials: 'include',
-                    cache: 'no-store'
+                    credentials: 'include', // Important: send cookies with request
+                    cache: 'no-store',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    }
                 });
+
+                console.log("[Auth] /api/auth/me response status:", res.status);
 
                 if (res.ok) {
                     const data = await res.json();
+                    console.log("[Auth] Session valid for user:", data.user?.email);
+                    
                     if (data.success && data.user) {
                         setUser({
                             id: data.user.id,
@@ -53,43 +63,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         setIsLoading(false);
                         return;
                     }
+                } else {
+                    console.warn("[Auth] /api/auth/me returned status:", res.status);
                 }
             } catch (err) {
                 console.error("[Auth] Failed to fetch session:", err);
             }
 
-            // Fallback: try reading from client-side cookie
-            try {
-                const cookie = document.cookie.split('; ').find(row => row.startsWith('yira_session='));
-                if (cookie) {
-                    const value = cookie.split('=')[1];
-                    const userData = JSON.parse(decodeURIComponent(value));
-                    setUser(userData);
-                    setIsLoading(false);
-                    return;
-                }
-            } catch (e) {
-                console.error("[Auth] Failed to parse cookie:", e);
-            }
-
+            // If we reach here, no valid session
+            console.log("[Auth] No valid session found");
             setIsLoading(false);
         };
 
         initializeAuth();
     }, []);
 
-    // Update the login function to ensure role is properly set
     const login = async (email: string, password: string, role: "admin" | "user"): Promise<{ success: boolean, error?: string }> => {
         try {
+            console.log("[Auth] Login attempt for:", email);
+            
             const res = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password, role }),
-                credentials: 'include',
+                credentials: 'include', // Important: receive and store cookies
             });
             const data = await res.json();
 
             if (!res.ok) {
+                console.error("[Auth] Login failed:", data.error);
                 return { success: false, error: data.error };
             }
 
@@ -99,32 +101,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     email: data.user.email,
                     name: data.user.name || "",
                     phoneNumber: data.user.phoneNumber || "",
-                    role: data.user.role || "user", // Ensure role from server
+                    role: data.user.role || "user",
                     uploadCount: data.user.uploadCount || 0,
                 };
                 setUser(userData);
-                console.log("[Auth] Login successful, role:", userData.role); // Debug log
+                console.log("[Auth] Login successful, role:", userData.role);
+                
+                // Give the browser a moment to process the cookie before navigating
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
                 return { success: true };
             }
 
             return { success: false, error: data.error || 'Login failed' };
         } catch (err) {
-            console.error("[Login] Error:", err);
+            console.error("[Auth] Login error:", err);
             return { success: false, error: 'Login failed' };
         }
     };
 
     const logout = async () => {
         try {
-            await fetch('/api/auth/logout', {
+            console.log("[Auth] Logout initiated");
+            const res = await fetch('/api/auth/logout', {
                 method: 'POST',
                 credentials: 'include'
             });
+            console.log("[Auth] Logout response status:", res.status);
         } catch (err) {
-            console.error("[Logout] Error:", err);
+            console.error("[Auth] Logout error:", err);
         }
+        
         setUser(null);
-        router.push('/login');
+        
+        // Give the browser a moment to clear the cookie
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        router.replace('/login');
     };
 
     const incrementUploadCount = async () => {
@@ -136,9 +149,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (res.ok) {
                 const data = await res.json()
                 if (data.success && user) {
-                    const updatedUser = { ...user, uploadCount: data.uploadCount }
-                    setUser(updatedUser)
+                    setUser({ ...user, uploadCount: data.uploadCount })
 
+                    // Refresh user data from server
                     try {
                         const meRes = await fetch('/api/auth/me', {
                             credentials: 'include',
@@ -163,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
             }
         } catch (err) {
-            console.error("[Increment Upload] Error:", err)
+            console.error("[Auth] Increment upload error:", err)
         }
     }
 

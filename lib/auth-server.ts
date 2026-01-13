@@ -12,7 +12,13 @@ export const getSessionUser = async (
 ): Promise<SessionUser | null> => {
     const cookie = req.cookies.get("yira_session")?.value;
 
+    console.log("[AUTH-SERVER] Checking session cookie:", {
+        hasCookie: !!cookie,
+        allCookies: req.cookies.getAll().map((c) => c.name),
+    });
+
     if (!cookie) {
+        console.warn("[AUTH-SERVER] No session cookie found");
         return null;
     }
 
@@ -26,6 +32,8 @@ export const getSessionUser = async (
             uploadCount: number;
         };
 
+        console.log("[AUTH-SERVER] Session valid for user:", userData.email);
+
         return {
             email: userData.email,
             name: userData.name,
@@ -33,7 +41,7 @@ export const getSessionUser = async (
             isAdmin: userData.role === "admin",
         };
     } catch (error) {
-        console.error("[Auth] Failed to parse session cookie:", error);
+        console.error("[AUTH-SERVER] Failed to parse session cookie:", error);
         return null;
     }
 };
