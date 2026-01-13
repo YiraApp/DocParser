@@ -6,4 +6,6 @@ services:
       - "3029:3029"
     environment:
       - NODE_ENV=production
+    env_file:
+      - .env
     restart: unless-stopped
