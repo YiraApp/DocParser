@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
 import { ObjectId } from "mongodb"
-import pdf from "pdf-parse"
+import * as pdf from "pdf-parse"
 import fs from "fs"
 import path from "path"
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
         // TODO: Retrieve the actual file from storage (S3, local, etc.)
         // For now, assuming the file is already available
-        
+
         console.log(`[PARSER] Starting parse for document: ${documentId}`)
 
         // Mock parsing result (replace with actual PDF parsing)
