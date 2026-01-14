@@ -32,23 +32,25 @@ export async function uploadDocumentToYira(
 
     const fileBuffer = await file.arrayBuffer()
 
-    const documentRecord = {
-      _id: documentId,
-      user_email: userEmail,
-      file_name: originalFileName,
-      file_type: file.type,
-      file_size: file.size,
-      status: "processing",
-      job_id: jobId,
-      report_id: reportId,
-      created_at: new Date(),
-      updated_at: new Date(),
-      parsed_data: null,
-      structured_data: null,
-      error_message: null,
-    }
+      const documentRecord = {
+          user_email: userEmail,
+          file_name: originalFileName,
+          file_type: file.type,
+          file_size: file.size,
+          status: "processing",
+          job_id: jobId,
+          report_id: reportId,
+          created_at: new Date(),
+          updated_at: new Date(),
+          parsed_data: null,
+          structured_data: null,
+          error_message: null,
+      }
 
-    await documentsCollection.insertOne(documentRecord)
+      // MongoDB will generate _id
+      const result = await documentsCollection.insertOne(documentRecord)
+      console.log(result.insertedId)
+
 
     console.log("[parse-wrapper] Document created:", documentId)
 
