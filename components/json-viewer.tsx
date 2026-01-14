@@ -17,31 +17,44 @@ export function JsonViewer({ data, title = "Structured Data" }: JsonViewerProps)
 
     const handleCopy = async () => {
         try {
-            // Check if clipboard API is available (HTTPS only)
-            if (navigator?.clipboard?.writeText) {
-                await navigator.clipboard.writeText(jsonString)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
-            } else {
-                // Fallback for HTTP or older browsers
-                const textArea = document.createElement("textarea")
-                textArea.value = jsonString
-                textArea.style.position = "fixed"
-                textArea.style.left = "-999999px"
-                textArea.style.top = "0"
-                document.body.appendChild(textArea)
-                textArea.focus()
-                textArea.select()
+            // Check if we're in a secure context (HTTPS)
+            const isSecureContext = window.isSecureContext || (typeof navigator !== 'undefined' && navigator.clipboard !== undefined)
+
+            // Try clipboard API first (HTTPS/secure contexts)
+            if (isSecureContext && navigator?.clipboard?.writeText) {
                 try {
-                    document.execCommand("copy")
+                    await navigator.clipboard.writeText(jsonString)
                     setCopied(true)
                     setTimeout(() => setCopied(false), 2000)
-                } catch (err) {
-                    console.error("Fallback copy failed:", err)
-                    alert("Failed to copy to clipboard")
-                } finally {
-                    document.body.removeChild(textArea)
+                    return
+                } catch (clipboardErr) {
+                    console.warn("Clipboard API failed, falling back to textarea method:", clipboardErr)
                 }
+            }
+
+            // Fallback for HTTP or older browsers - always use textarea method
+            const textArea = document.createElement("textarea")
+            textArea.value = jsonString
+            textArea.style.position = "fixed"
+            textArea.style.left = "-999999px"
+            textArea.style.top = "0"
+            textArea.style.opacity = "0"
+            document.body.appendChild(textArea)
+            textArea.focus()
+            textArea.select()
+            try {
+                const successful = document.execCommand("copy")
+                if (successful) {
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                } else {
+                    alert("Failed to copy to clipboard. Please try again.")
+                }
+            } catch (err) {
+                console.error("Fallback copy failed:", err)
+                alert("Failed to copy to clipboard")
+            } finally {
+                document.body.removeChild(textArea)
             }
         } catch (err) {
             console.error("Failed to copy:", err)
@@ -50,15 +63,24 @@ export function JsonViewer({ data, title = "Structured Data" }: JsonViewerProps)
     }
 
     const handleDownload = () => {
-        const blob = new Blob([jsonString], { type: "application/json" })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = `medical-document-${Date.now()}.json`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
+        try {
+            const blob = new Blob([jsonString], { type: "application/json" })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement("a")
+            a.href = url
+            a.download = `medical-document-${Date.now()}.json`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+
+            // Cleanup with a small delay to ensure download starts
+            setTimeout(() => {
+                URL.revokeObjectURL(url)
+            }, 100)
+        } catch (err) {
+            console.error("Download failed:", err)
+            alert("Failed to download JSON")
+        }
     }
 
     return (

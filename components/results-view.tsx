@@ -934,33 +934,39 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             text: `Parsed medical document for ${patientName}`,
             url: window.location.href,
         }
+
         if (navigator.share) {
             try {
                 await navigator.share(shareData)
+                return
             } catch (err) {
-                // User cancelled or share failed
+                console.log("Web Share cancelled or failed:", err)
             }
-        } else {
-            // Fallback for browsers without Web Share API or non-secure context
-            try {
-                if (navigator.clipboard && window.isSecureContext) {
-                    await navigator.clipboard.writeText(window.location.href)
-                } else {
-                    // Legacy fallback using textarea
-                    const textArea = document.createElement("textarea")
-                    textArea.value = window.location.href
-                    textArea.style.position = "fixed"
-                    textArea.style.left = "-999999px"
-                    document.body.appendChild(textArea)
-                    textArea.select()
-                    document.execCommand("copy")
-                    document.body.removeChild(textArea)
-                }
+        }
+
+        // Fallback: copy link to clipboard
+        try {
+            const textArea = document.createElement("textarea")
+            textArea.value = window.location.href
+            textArea.style.position = "fixed"
+            textArea.style.left = "-999999px"
+            textArea.style.top = "0"
+            textArea.style.opacity = "0"
+            document.body.appendChild(textArea)
+            textArea.focus()
+            textArea.select()
+
+            const successful = document.execCommand("copy")
+            document.body.removeChild(textArea)
+
+            if (successful) {
                 alert("Link copied to clipboard!")
-            } catch (err) {
-                console.error("Failed to copy link:", err)
+            } else {
                 alert("Failed to copy link. Please try again.")
             }
+        } catch (err) {
+            console.error("Failed to copy link:", err)
+            alert("Failed to copy link. Please try again.")
         }
     }
     const structuredData = document.structuredData
