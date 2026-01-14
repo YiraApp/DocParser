@@ -941,8 +941,26 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 // User cancelled or share failed
             }
         } else {
-            navigator.clipboard.writeText(window.location.href)
-            alert("Link copied to clipboard!")
+            // Fallback for browsers without Web Share API or non-secure context
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(window.location.href)
+                } else {
+                    // Legacy fallback using textarea
+                    const textArea = document.createElement("textarea")
+                    textArea.value = window.location.href
+                    textArea.style.position = "fixed"
+                    textArea.style.left = "-999999px"
+                    document.body.appendChild(textArea)
+                    textArea.select()
+                    document.execCommand("copy")
+                    document.body.removeChild(textArea)
+                }
+                alert("Link copied to clipboard!")
+            } catch (err) {
+                console.error("Failed to copy link:", err)
+                alert("Failed to copy link. Please try again.")
+            }
         }
     }
     const structuredData = document.structuredData
