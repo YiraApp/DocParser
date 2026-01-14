@@ -187,7 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 login,
                 logout,
                 incrementUploadCount,
-                isAdmin: user?.role === "admin" ?? false,
+                isAdmin: !!(user?.role === "admin"),
                 isLoading,
             }}
         >
