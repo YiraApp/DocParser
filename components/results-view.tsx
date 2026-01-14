@@ -3,6 +3,8 @@ import { useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+// Add this import with the other icon imports
+import { ClipboardCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -958,6 +960,7 @@ const splitDoctors = (doctorText: any): string[] => {
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="clinical">Clinical</TabsTrigger>
                     <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
+                    <TabsTrigger value="medical-history">Medical History</TabsTrigger>
                     <TabsTrigger value="raw">Raw Data</TabsTrigger>
                 </TabsList>
                 <TabsContent value="overview" className="space-y-3">
@@ -1192,7 +1195,8 @@ const splitDoctors = (doctorText: any): string[] => {
                         </Card>
                     )}
                     {/* Medications */}
-                    {structuredData?.clinicalData?.medications && structuredData.clinicalData.medications.length > 0 && (
+                    {/* Medications */}
+                    {structuredData?.clinicalData?.medications && Array.isArray(structuredData.clinicalData.medications) && structuredData.clinicalData.medications.length > 0 && (
                         <Card className="border border-border/50">
                             <div className="p-4 space-y-3">
                                 <div className="flex items-center gap-1">
@@ -1204,21 +1208,21 @@ const splitDoctors = (doctorText: any): string[] => {
                                 <div className="space-y-2">
                                     {structuredData.clinicalData.medications.map((med: any, idx: number) => (
                                         <div key={idx} className="p-2 bg-muted/30 rounded-md border border-border/30">
-                                            <p className="text-sm font-semibold text-foreground">{med.name}</p>
+                                            <p className="text-sm font-semibold text-foreground">{med?.name || "Unknown Medication"}</p>
                                             <div className="mt-1 grid grid-cols-3 gap-1 text-xs">
-                                                {med.dosage && (
+                                                {med?.dosage && (
                                                     <div>
                                                         <span className="text-muted-foreground">Dosage:</span>
                                                         <p className="font-medium text-foreground">{med.dosage}</p>
                                                     </div>
                                                 )}
-                                                {med.frequency && (
+                                                {med?.frequency && (
                                                     <div>
                                                         <span className="text-muted-foreground">Frequency:</span>
                                                         <p className="font-medium text-foreground">{med.frequency}</p>
                                                     </div>
                                                 )}
-                                                {med.duration && (
+                                                {med?.duration && (
                                                     <div>
                                                         <span className="text-muted-foreground">Duration:</span>
                                                         <p className="font-medium text-foreground">{med.duration}</p>
@@ -1306,6 +1310,176 @@ const splitDoctors = (doctorText: any): string[] => {
                                 </div>
                             </Card>
                         )}
+                    {/* Procedures */}
+                    {structuredData?.clinicalData?.procedures && Array.isArray(structuredData.clinicalData.procedures) && structuredData.clinicalData.procedures.length > 0 && (
+                        <Card className="border border-blue-500/20 bg-blue-500/5 shadow-sm">
+                            <div className="p-4 space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 rounded-md bg-blue-500/10">
+                                        <Stethoscope className="w-4 h-4 text-blue-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="text-base font-semibold text-foreground">Procedures</h3>
+                                        <p className="text-xs text-muted-foreground mt-1">Tests and procedures performed</p>
+                                    </div>
+                                </div>
+                                <div className="grid gap-2">
+                                    {structuredData.clinicalData.procedures.map((procedure: any, index: number) => (
+                                        <div
+                                            key={index}
+                                            className="flex items-start gap-3 p-3 rounded-md bg-background border border-blue-500/20 hover:border-blue-500/40 transition-colors"
+                                        >
+                                            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                                            <p className="text-sm text-foreground leading-relaxed">
+                                                {typeof procedure === "string" ? procedure : procedure.name || JSON.stringify(procedure)}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+                    {/* Imaging Findings */}
+                    {structuredData?.clinicalData?.imagingFindings && (typeof structuredData.clinicalData.imagingFindings === "object" ? Object.keys(structuredData.clinicalData.imagingFindings).length > 0 : structuredData.clinicalData.imagingFindings) && (
+                        <Card className="border border-pink-500/20 bg-pink-500/5 shadow-sm">
+                            <div className="p-4 space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 rounded-md bg-pink-500/10">
+                                        <TestTube className="w-4 h-4 text-pink-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="text-base font-semibold text-foreground">Imaging Findings</h3>
+                                        <p className="text-xs text-muted-foreground mt-1">Radiological and imaging findings</p>
+                                    </div>
+                                </div>
+                                <div className="space-y-3">
+                                    {typeof structuredData.clinicalData.imagingFindings === "object" && structuredData.clinicalData.imagingFindings !== null ? (
+                                        Object.entries(structuredData.clinicalData.imagingFindings).map(([key, value]: [string, any], index: number) => (
+                                            <div key={index} className="p-3 rounded-md bg-background border border-pink-500/20 space-y-2">
+                                                <p className="text-xs font-semibold text-pink-600 uppercase tracking-wide">{key.replace(/([A-Z])/g, " $1")}</p>
+                                                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                                    {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+                                                </p>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="p-3 rounded-md bg-background border border-pink-500/20">
+                                            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                                {String(structuredData.clinicalData.imagingFindings)}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </Card>
+                    )}
+                    {/* Photo Comparison */}
+                    {structuredData?.photoComparison && structuredData.photoComparison.comparison_performed && (
+                        <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">
+                            <div className="p-4 space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 rounded-md bg-indigo-500/10">
+                                        <Eye className="w-4 h-4 text-indigo-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="text-base font-semibold text-foreground">Photo Comparison Analysis</h3>
+                                        <p className="text-xs text-muted-foreground mt-1">Identity verification and image matching results</p>
+                                    </div>
+                                </div>
+
+                                {/* Match Result */}
+                                <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${structuredData.photoComparison.match?.toUpperCase() === "YES"
+                                                ? "bg-green-500/10"
+                                                : "bg-red-500/10"
+                                            }`}>
+                                            {structuredData.photoComparison.match?.toUpperCase() === "YES" ? (
+                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                            ) : (
+                                                <AlertCircle className="w-4 h-4 text-red-600" />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">Match Status</p>
+                                            <Badge variant={structuredData.photoComparison.match?.toUpperCase() === "YES" ? "default" : "destructive"}>
+                                                {structuredData.photoComparison.match || "Unknown"}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Confidence Level */}
+                                {structuredData.photoComparison.confidence && (
+                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Confidence Level</p>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                                                <div
+                                                    className={`h-full transition-all ${structuredData.photoComparison.confidence?.toLowerCase() === "high"
+                                                            ? "bg-green-500 w-full"
+                                                            : structuredData.photoComparison.confidence?.toLowerCase() === "medium"
+                                                                ? "bg-yellow-500 w-2/3"
+                                                                : "bg-red-500 w-1/3"
+                                                        }`}
+                                                />
+                                            </div>
+                                            <Badge
+                                                variant={
+                                                    structuredData.photoComparison.confidence?.toLowerCase() === "high"
+                                                        ? "default"
+                                                        : structuredData.photoComparison.confidence?.toLowerCase() === "medium"
+                                                            ? "secondary"
+                                                            : "destructive"
+                                                }
+                                            >
+                                                {structuredData.photoComparison.confidence}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Reason/Details */}
+                                {structuredData.photoComparison.reason && (
+                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Analysis Details</p>
+                                        <p className="text-sm text-foreground leading-relaxed">
+                                            {structuredData.photoComparison.reason}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Images Found */}
+                                {structuredData.photoComparison.images_found && Array.isArray(structuredData.photoComparison.images_found) && structuredData.photoComparison.images_found.length > 0 && (
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Images Analyzed</p>
+                                        <div className="grid gap-2">
+                                            {structuredData.photoComparison.images_found.map((image: any, index: number) => (
+                                                <div key={index} className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                                    <div className="flex items-start gap-2">
+                                                        <div className="w-8 h-8 rounded-md bg-indigo-500/10 flex items-center justify-center shrink-0">
+                                                            <span className="text-xs font-semibold text-indigo-600">{image.image_number}</span>
+                                                        </div>
+                                                        <div className="flex-1 space-y-1">
+                                                            <p className="text-xs font-medium text-muted-foreground">Image {image.image_number}</p>
+                                                            <p className="text-sm text-foreground leading-relaxed">
+                                                                {image.description}
+                                                            </p>
+                                                            {image.source_file && (
+                                                                <p className="text-xs text-muted-foreground">
+                                                                    Source: {image.source_file}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </Card>
+                    )}
                     {/* Bind medical, medications, and lab results categorized fields to clinical tab */}
                     {categorizedFields.medical.length > 0 && (
                         <Card className="border border-red-500/20 bg-red-500/5 shadow-sm">
@@ -1589,6 +1763,58 @@ const splitDoctors = (doctorText: any): string[] => {
                             <div className="p-6 text-center">
                                 <Heart className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                                 <p className="text-muted-foreground">No health recommendations available for this document.</p>
+                            </div>
+                        </Card>
+                    )}
+                </TabsContent>
+                <TabsContent value="medical-history" className="space-y-3">
+                    {structuredData?.medicalHistoryQuestions && structuredData.medicalHistoryQuestions.length > 0 ? (
+                        <Card className="border border-border/50">
+                            <div className="p-4 space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 rounded-md bg-cyan-500/10">
+                                        <ClipboardCheck className="w-4 h-4 text-cyan-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="text-base font-semibold text-foreground">Medical History Questionnaire</h3>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Patient medical history responses and clinical assessments
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                                    {structuredData.medicalHistoryQuestions.map((item: any, index: number) => {
+                                        const getAnswerBadgeVariant = (answer: string) => {
+                                            const answerLower = answer?.toLowerCase?.() || ""
+                                            if (answerLower === "yes") return "default"
+                                            if (answerLower === "no") return "secondary"
+                                            return "outline"
+                                        }
+
+                                        return (
+                                            <div
+                                                key={index}
+                                                className="p-3 rounded-md bg-background border border-cyan-500/20 hover:border-cyan-500/40 transition-colors space-y-2"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <p className="text-sm font-medium text-foreground flex-1">
+                                                        {item.question}
+                                                    </p>
+                                                    <Badge variant={getAnswerBadgeVariant(item.answer)}>
+                                                        {item.answer}
+                                                    </Badge>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        </Card>
+                    ) : (
+                        <Card className="border border-border/50">
+                            <div className="p-6 text-center">
+                                <ClipboardCheck className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                                <p className="text-muted-foreground">No medical history questionnaire data available for this document.</p>
                             </div>
                         </Card>
                     )}

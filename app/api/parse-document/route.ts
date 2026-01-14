@@ -15,6 +15,9 @@ function mapParsedDataToStructured(parsedData: any) {
         return String(patientIdField)
     }
 
+    // Ensure medications is always an array
+    const medications = Array.isArray(parsedData.medications) ? parsedData.medications : []
+
     const labResults: { test: any; measuredValue: any; unit: any; referenceRange: any; status: any; notes: null }[] = []
     if (parsedData.lab_results && Array.isArray(parsedData.lab_results)) {
         parsedData.lab_results.forEach((exam: any) => {
@@ -49,7 +52,7 @@ function mapParsedDataToStructured(parsedData: any) {
         clinicalData: {
             diagnosis: parsedData.diagnosis || null,
             secondaryDiagnoses: [],
-            medications: parsedData.medications || [],
+            medications: medications,
             labResults: labResults,
             vitalSigns: extractVitalSigns(parsedData),
             procedures: parsedData.procedures || null,
@@ -60,6 +63,12 @@ function mapParsedDataToStructured(parsedData: any) {
             reportDate: parsedData.encounter_date || null,
         },
         documentSummary: buildDocumentSummary(parsedData),
+        // Add medical history questions
+        medicalHistoryQuestions: parsedData.medical_history_questions || [],
+        // Preserve photo comparison data
+        photoComparison: parsedData.photo_comparison || null,
+        // Preserve fraud detection data
+        fraudDetection: parsedData.fraud_detection || null,
     }
 }
 
@@ -234,7 +243,22 @@ export async function GET(request: NextRequest) {
             doc.summary = buildDocumentSummary(doc.parsed_data)
         }
 
-        // **Format response**
+        // **Format response - Include complete structured data with all parsed data fields**
+        const structuredData = doc.structured_data || {}
+        
+        // Merge parsed_data into structured data to preserve all fields
+        const completeStructuredData = {
+            ...structuredData,
+            // Ensure medical history questions are included
+            medicalHistoryQuestions: doc.parsed_data?.medical_history_questions || structuredData.medicalHistoryQuestions || [],
+            // Ensure photo comparison is included
+            photoComparison: doc.parsed_data?.photo_comparison || structuredData.photoComparison || null,
+            // Ensure fraud detection is included
+            fraudDetection: doc.parsed_data?.fraud_detection || structuredData.fraudDetection || null,
+            // Ensure all raw parsed data is accessible
+            rawParsedData: doc.parsed_data || {},
+        }
+
         const formattedData = {
             id: doc.job_id || doc._id?.toString() || id,
             fileName: doc.file_name || "Untitled Document",
@@ -244,12 +268,13 @@ export async function GET(request: NextRequest) {
             fields: doc.fields || [],
             summary: doc.summary || "",
             notes: doc.notes || [],
-            structuredData: doc.structured_data || {},
+            structuredData: completeStructuredData,
             confidenceScore: doc.confidence_score || undefined,
             healthRecommendations: doc.health_recommendations || undefined,
         }
 
         console.log("[PARSE-DOCUMENT GET] ✅ Returning formatted data")
+        console.log("[PARSE-DOCUMENT GET] Medical History Questions Count:", formattedData.structuredData.medicalHistoryQuestions.length)
         return NextResponse.json(formattedData)
     } catch (error) {
         console.error("[PARSE-DOCUMENT GET] ❌ Error:", error)

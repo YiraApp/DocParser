@@ -64,7 +64,6 @@ function mapParsedDataToStructured(parsedData: any) {
     return {
         patientInfo: {
             fullName: parsedData.patient_name || "",
-            name: parsedData.patient_name || "",
             dateOfBirth: null,
             age: null,
             gender: null,
@@ -89,9 +88,14 @@ function mapParsedDataToStructured(parsedData: any) {
             reportDate: parsedData.encounter_date || null,
         },
         documentSummary: buildDocumentSummary(parsedData),
+        // Add medical history questions
+        medicalHistoryQuestions: parsedData.medical_history_questions || [],
+        // Preserve photo comparison data
+        photoComparison: parsedData.photo_comparison || null,
+        // Preserve fraud detection data
+        fraudDetection: parsedData.fraud_detection || null,
     }
 }
-
 function extractVitalSigns(parsedData: any) {
     const vitalSigns: Record<string, any> = {}
 

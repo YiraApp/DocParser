@@ -38,6 +38,9 @@ export function ResultsSection({ document, onNewUpload, onClose }: ResultsSectio
 
                 Object.entries(obj).forEach(([key, value]) => {
                     if (value === null || value === undefined) return
+                    
+                    // Skip medical_history_questions as it will be handled separately
+                    if (key === "medical_history_questions") return
 
                     const fieldLabel = prefix
                         ? `${prefix} > ${key}`
@@ -166,6 +169,9 @@ export function ResultsSection({ document, onNewUpload, onClose }: ResultsSectio
                     raw.summary ||
                     raw.document_summary ||
                     "",
+
+                // Medical history questions
+                medicalHistoryQuestions: raw.medical_history_questions || [],
 
                 // Preserve other fields
                 ...raw,

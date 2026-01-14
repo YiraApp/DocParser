@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
 // Helper: Map parsed_data to structured format
 function mapParsedDataToStructured(parsedData: any) {
     if (!parsedData) return {}
-    // Extract patient ID safely
+
     const getPatientId = (patientIdField: any): string => {
         if (!patientIdField) return ""
         if (typeof patientIdField === "string") return patientIdField
@@ -87,7 +87,7 @@ function mapParsedDataToStructured(parsedData: any) {
         }
         return String(patientIdField)
     }
-    // Extract lab results
+
     const labResults: { test: any; measuredValue: any; unit: any; referenceRange: any; status: any; notes: null }[] = []
     if (parsedData.lab_results && Array.isArray(parsedData.lab_results)) {
         parsedData.lab_results.forEach((exam: any) => {
@@ -105,43 +105,42 @@ function mapParsedDataToStructured(parsedData: any) {
             }
         })
     }
-    // Patient info
-    const patientInfo = {
-        fullName: parsedData.patient_name || "",
-        name: parsedData.patient_name || "",
-        dateOfBirth: null,
-        age: null,
-        gender: null,
-        medicalRecordNumber: getPatientId(parsedData.patient_id),
-    }
-    // Provider info
-    const providerInfo = {
-        hospitalName: null,
-        department: null,
-        doctorName: parsedData.clinician_name || "",
-    }
-    // Clinical data
-    const clinicalData = {
-        diagnosis: parsedData.diagnosis || null,
-        secondaryDiagnoses: [],
-        medications: parsedData.medications || [],
-        labResults: labResults,
-        vitalSigns: extractVitalSigns(parsedData),
-        procedures: parsedData.procedures || null,
-        imagingFindings: parsedData.imaging_findings || null,
-    }
+
     return {
-        patientInfo,
-        providerInfo,
-        clinicalData,
+        patientInfo: {
+            fullName: parsedData.patient_name || "",
+            dateOfBirth: null,
+            age: null,
+            gender: null,
+            medicalRecordNumber: getPatientId(parsedData.patient_id),
+        },
+        providerInfo: {
+            hospitalName: null,
+            department: null,
+            doctorName: parsedData.clinician_name || "",
+        },
+        clinicalData: {
+            diagnosis: parsedData.diagnosis || null,
+            secondaryDiagnoses: [],
+            medications: parsedData.medications || [],
+            labResults: labResults,
+            vitalSigns: extractVitalSigns(parsedData),
+            procedures: parsedData.procedures || null,
+            imagingFindings: parsedData.imaging_findings || null,
+        },
         documentInfo: {
             type: "Medical Report",
             reportDate: parsedData.encounter_date || null,
         },
         documentSummary: buildDocumentSummary(parsedData),
+        // Add medical history questions
+        medicalHistoryQuestions: parsedData.medical_history_questions || [],
+        // Preserve photo comparison data
+        photoComparison: parsedData.photo_comparison || null,
+        // Preserve fraud detection data
+        fraudDetection: parsedData.fraud_detection || null,
     }
 }
-
 // Helper: Extract vital signs
 function extractVitalSigns(parsedData: any) {
     const vitalSigns: Record<string, any> = {}
