@@ -1494,14 +1494,62 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                 </div>
                                 <div className="space-y-3">
                                     {typeof structuredData.clinicalData.imagingFindings === "object" && structuredData.clinicalData.imagingFindings !== null ? (
-                                        Object.entries(structuredData.clinicalData.imagingFindings).map(([key, value]: [string, any], index: number) => (
-                                            <div key={index} className="p-3 rounded-md bg-background border border-pink-500/20 space-y-2">
-                                                <p className="text-xs font-semibold text-pink-600 uppercase tracking-wide">{key.replace(/([A-Z])/g, " $1")}</p>
-                                                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
-                                                    {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
-                                                </p>
-                                            </div>
-                                        ))
+                                        Array.isArray(structuredData.clinicalData.imagingFindings) ? (
+                                            // Handle array of examinations
+                                            structuredData.clinicalData.imagingFindings.map((exam: any, examIndex: number) => (
+                                                <div key={examIndex} className="p-3 rounded-md bg-background border border-pink-500/20 space-y-3">
+                                                    {exam.examination_name && (
+                                                        <h4 className="text-sm font-semibold text-pink-600 uppercase tracking-wide">{exam.examination_name}</h4>
+                                                    )}
+                                                    {Array.isArray(exam.tests) && exam.tests.length > 0 ? (
+                                                        <div className="space-y-2">
+                                                            {exam.tests.map((test: any, testIndex: number) => (
+                                                                <div
+                                                                    key={testIndex}
+                                                                    className="rounded-lg border border-pink-300/30 bg-pink-50/40 px-4 py-3 space-y-3"
+                                                                >
+                                                                    {/* TEST NAME */}
+                                                                    {(test.test_name || test.testName) && (
+                                                                        <div className="space-y-1">
+                                                                            <span className="text-xs font-semibold text-muted-foreground uppercase">
+                                                                                Test Name:
+                                                                            </span>
+                                                                            <p className="text-sm font-semibold text-foreground">
+                                                                                {test.test_name || test.testName}
+                                                                            </p>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* RESULT */}
+                                                                    {test.result && (
+                                                                        <div className="space-y-1">
+                                                                            <span className="text-xs font-semibold text-muted-foreground uppercase">
+                                                                                Result:
+                                                                            </span>
+                                                                            <p className="text-sm text-foreground leading-relaxed">
+                                                                                {test.result}
+                                                                            </p>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-sm text-muted-foreground">No test results available</p>
+                                                    )}
+                                                </div>
+                                            ))
+                                        ) : (
+                                            // Handle object format (backwards compatibility)
+                                            Object.entries(structuredData.clinicalData.imagingFindings).map(([key, value]: [string, any], index: number) => (
+                                                <div key={index} className="p-3 rounded-md bg-background border border-pink-500/20 space-y-2">
+                                                    <p className="text-xs font-semibold text-pink-600 uppercase tracking-wide">{key.replace(/([A-Z])/g, " $1")}</p>
+                                                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                                        {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+                                                    </p>
+                                                </div>
+                                            ))
+                                        )
                                     ) : (
                                         <div className="p-3 rounded-md bg-background border border-pink-500/20">
                                             <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
