@@ -1,4 +1,5 @@
-﻿"use client"
+﻿// Modified HomePage component
+"use client"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { ResultsSection } from "@/components/results-section"
@@ -15,14 +16,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-
 interface ProcessingState {
     isProcessing: boolean
     fileName: string
     documentId: string
     jobId: string
 }
-
 export default function HomePage() {
     const [parsedDocument, setParsedDocument] = useState<any>(null)
     const [showResults, setShowResults] = useState(false)
@@ -45,27 +44,24 @@ export default function HomePage() {
         documentId: "",
         jobId: "",
     })
+    const [isLoadingDocument, setIsLoadingDocument] = useState(false)
+    const [selectedDocumentId, setSelectedDocumentId] = useState<string | undefined>(undefined)
     const { user, logout, isAdmin, isLoading } = useAuth()
     const router = useRouter()
-
     useEffect(() => {
         if (isLoading) return
         if (!user) {
             router.push("/login")
         }
     }, [user, router, isLoading])
-
     // Poll for document completion when processing
     useEffect(() => {
         if (!processingState.isProcessing || !processingState.documentId) return
-
         let pollAttempts = 0
         const maxAttempts = 240 // 4 minutes with 1-second intervals
-
         const pollInterval = setInterval(async () => {
             pollAttempts++
             console.log(`[PAGE] Polling for document... (attempt ${pollAttempts}/${maxAttempts})`)
-
             try {
                 const response = await fetch(`/api/parse-document?id=${processingState.documentId}`)
                 if (response.ok) {
@@ -73,7 +69,6 @@ export default function HomePage() {
                     // Check if document has structured data (webhook has processed it)
                     if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
                         console.log("[PAGE] Document ready! Loading results...")
-
                         const formattedData = {
                             id: fullData.id || processingState.documentId,
                             fileName: fullData.fileName || processingState.fileName,
@@ -88,11 +83,9 @@ export default function HomePage() {
                             healthRecommendations: fullData.healthRecommendations,
                             jobId: processingState.jobId,
                         }
-
                         // Update parsed document and show results view
                         setParsedDocument(formattedData)
                         setShowResults(true)
-
                         // Clear processing state
                         setProcessingState({
                             isProcessing: false,
@@ -100,7 +93,6 @@ export default function HomePage() {
                             documentId: "",
                             jobId: "",
                         })
-
                         clearInterval(pollInterval)
                         return
                     }
@@ -108,7 +100,6 @@ export default function HomePage() {
             } catch (err) {
                 console.error("[PAGE] Polling error:", err)
             }
-
             // Stop polling after max attempts
             if (pollAttempts >= maxAttempts) {
                 console.warn("[PAGE] Max polling attempts reached")
@@ -121,10 +112,8 @@ export default function HomePage() {
                 clearInterval(pollInterval)
             }
         }, 1000)
-
         return () => clearInterval(pollInterval)
     }, [processingState.isProcessing, processingState.documentId])
-
     if (isLoading || !user) {
         return (
             <div className="h-screen flex items-center justify-center bg-background">
@@ -135,7 +124,6 @@ export default function HomePage() {
             </div>
         )
     }
-
     const handleUploadSuccess = (document: any) => {
         // If document is still processing, track it in sidebar
         if (document.status === "processing") {
@@ -152,13 +140,17 @@ export default function HomePage() {
             setShowSearch(false)
         }
     }
-
-    const handleHistorySelect = (document: any) => {
-        setParsedDocument(document)
+    const handleHistoryClickStart = (docId: string) => {
+        setSelectedDocumentId(docId)
+        setIsLoadingDocument(true)
         setShowResults(true)
         setShowSearch(false)
+        setParsedDocument(null) // Clear previous data
     }
-
+    const handleHistorySelect = (document: any) => {
+        setParsedDocument(document)
+        setIsLoadingDocument(false)
+    }
     const handleSearchDocumentSelect = (document: any) => {
         const transformedDocument = {
             id: document.id,
@@ -177,10 +169,10 @@ export default function HomePage() {
         setShowResults(true)
         setShowSearch(false)
     }
-
     const handleNewUpload = () => {
         setParsedDocument(null)
         setShowResults(false)
+        setSelectedDocumentId(undefined)
         setProcessingState({
             isProcessing: false,
             fileName: "",
@@ -188,10 +180,10 @@ export default function HomePage() {
             jobId: "",
         })
     }
-
     const handleCloseResults = () => {
         setParsedDocument(null)
         setShowResults(false)
+        setSelectedDocumentId(undefined)
         setProcessingState({
             isProcessing: false,
             fileName: "",
@@ -199,15 +191,12 @@ export default function HomePage() {
             jobId: "",
         })
     }
-
     const handleSearchToggle = () => {
         setShowSearch(prev => !prev)
     }
-
     const handleLogout = () => {
         logout()
     }
-
     const handleCreateAccountClick = () => {
         setShowCreateAccount(true)
         setCreateEmail("")
@@ -221,22 +210,18 @@ export default function HomePage() {
         setShowPassword(false)
         setShowConfirmPassword(false)
     }
-
     const handleCreateAccountSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setCreateError("")
         setCreateSuccess(false)
-
         if (!createEmail || !createPassword || !createConfirmPassword || !createName || !createPhoneNumber) {
             setCreateError("All fields are required")
             return
         }
-
         if (!createPhoneNumber.replace(/\D/g, "").match(/^\d{10}$/)) {
             setCreateError("Phone number must be exactly 10 digits")
             return
         }
-
         if (createPassword !== createConfirmPassword) {
             setCreateError("Passwords do not match")
             return
@@ -285,7 +270,6 @@ export default function HomePage() {
             setIsCreating(false)
         }
     }
-
     return (
         <div className="h-screen flex flex-col overflow-hidden bg-background">
             {/* HEADER */}
@@ -368,10 +352,19 @@ export default function HomePage() {
                 <LeftSidebar
                     onUploadSuccess={handleUploadSuccess}
                     onHistorySelect={handleHistorySelect}
+                    onHistoryClickStart={handleHistoryClickStart} // Pass new prop
                     processingDocumentId={processingState.documentId}
+                    selectedDocumentId={selectedDocumentId}
                 />
                 <main className="flex-1 overflow-y-auto">
-                    {showResults ? (
+                    {isLoadingDocument ? (
+                        <div className="flex items-center justify-center min-h-full p-6">
+                            <div className="text-center space-y-4">
+                                <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                                <p className="text-muted-foreground">Loading document...</p>
+                            </div>
+                        </div>
+                    ) : showResults ? (
                         <div className="p-4 sm:p-6">
                             <ResultsSection
                                 document={parsedDocument}

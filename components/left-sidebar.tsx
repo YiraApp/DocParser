@@ -1,4 +1,5 @@
-﻿"use client"
+﻿// Modified LeftSidebar component
+"use client"
 import type React from "react"
 import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
@@ -12,13 +13,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-
 interface LeftSidebarProps {
     onUploadSuccess: (document: any) => void
     onHistorySelect?: (document: any) => void
+    onHistoryClickStart?: (docId: string) => void // New prop for starting history click
     processingDocumentId?: string
+    selectedDocumentId?: string
 }
-
 interface HistoryDocument {
     id: string
     job_id?: string
@@ -28,7 +29,6 @@ interface HistoryDocument {
     user_email?: string
     user_name?: string
 }
-
 interface PaginationInfo {
     page: number
     limit: number
@@ -37,8 +37,7 @@ interface PaginationInfo {
     hasNextPage: boolean
     hasPrevPage: boolean
 }
-
-export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocumentId }: LeftSidebarProps) {
+export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickStart, processingDocumentId, selectedDocumentId }: LeftSidebarProps) {
     const [file, setFile] = useState<File | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
@@ -53,18 +52,15 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
     const [pagination, setPagination] = useState<PaginationInfo | null>(null)
     const { user, incrementUploadCount, isAdmin } = useAuth()
     const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
-
     // Fetch documents with pagination
     const fetchDocuments = async (page: number = 1) => {
         if (!user) return
-
         setIsLoadingHistory(true)
         try {
             const params = new URLSearchParams({
                 page: page.toString(),
                 limit: "5",
             })
-
             // Only add filters for admins
             if (isAdmin) {
                 if (filterQuery.trim()) {
@@ -77,17 +73,14 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                     }
                 }
             }
-
             const response = await fetch(`/api/recent-documents?${params}`, {
                 credentials: "include",
             })
-
             if (!response.ok) {
                 console.error("[SIDEBAR] Failed to fetch documents")
                 setIsLoadingHistory(false)
                 return
             }
-
             const data = await response.json()
             setHistory(data.documents || [])
             setPagination(data.pagination)
@@ -98,20 +91,18 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
             setIsLoadingHistory(false)
         }
     }
-
     // Fetch on component mount
     useEffect(() => {
         fetchDocuments(1)
     }, [user])
-
     // Fetch when filter changes (for admins only)
     useEffect(() => {
         if (isAdmin) {
             fetchDocuments(1)
         }
     }, [filterQuery, filterType, isAdmin])
-
     const handleHistoryClick = async (doc: HistoryDocument) => {
+        onHistoryClickStart?.(doc.id) // Call start callback before fetch
         if (!onHistorySelect) return
         try {
             const response = await fetch(`/api/parse-document?id=${doc.id}`)
@@ -151,7 +142,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
             })
         }
     }
-
     const formatDate = (dateString: string) => {
         const date = new Date(dateString)
         const now = new Date()
@@ -164,17 +154,14 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
         if (days < 7) return `${days}d ago`
         return date.toLocaleDateString()
     }
-
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault()
         setIsDragging(true)
     }, [])
-
     const handleDragLeave = useCallback((e: React.DragEvent) => {
         e.preventDefault()
         setIsDragging(false)
     }, [])
-
     const handleDrop = useCallback(
         (e: React.DragEvent) => {
             e.preventDefault()
@@ -190,7 +177,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
         },
         [hasReachedLimit],
     )
-
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (hasReachedLimit) {
             setShowLimitDialog(true)
@@ -208,7 +194,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
             setFile(selectedFile)
         }
     }
-
     const handleUpload = async () => {
         if (hasReachedLimit) {
             setShowLimitDialog(true)
@@ -250,11 +235,9 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
             }
             const data = await response.json()
             console.log("[LeftSidebar] Upload success, ID:", data.id)
-
             setProgressMessage("Complete!")
             setUploadProgress(100)
             await new Promise((resolve) => setTimeout(resolve, 500))
-
             // Create processing document object to show spinner on main page
             const processingDocument = {
                 id: data.id,
@@ -272,16 +255,13 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                 reportId: data.report_id,
                 status: "processing",
             }
-
             incrementUploadCount()
             setFile(null)
             setUploadProgress(0)
             setProgressMessage("")
             fetchDocuments(1)
-
             // Pass processing document to parent - will show spinner
             onUploadSuccess(processingDocument)
-
         } catch (error) {
             console.error("[LeftSidebar] Upload error:", error)
             alert(error instanceof Error ? error.message : "Failed to upload. Please try again.")
@@ -313,7 +293,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                 </div>
                             </Card>
                         )}
-
                         <Card className="border border-primary/20 shadow-lg bg-gradient-to-br from-card to-card/50 backdrop-blur-sm">
                             <div className="p-2 space-y-2">
                                 <div className="flex items-center gap-2">
@@ -324,7 +303,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                         Upload New Document
                                     </h3>
                                 </div>
-
                                 <div
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
@@ -391,7 +369,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                         </Button>
                                     </div>
                                 </div>
-
                                 <Button
                                     onClick={handleUpload}
                                     disabled={!file || isUploading}
@@ -411,7 +388,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                 </Button>
                             </div>
                         </Card>
-
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
                                 <Clock className="w-3 h-3 text-muted-foreground" />
@@ -419,19 +395,17 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                     Recent Documents
                                 </h3>
                             </div>
-
                             {/* Filter Section - For Admins (show always when admin, not just when history exists) */}
                             {isAdmin && (
                                 <Card className="border border-border/50 bg-muted/20 p-2">
                                     <div className="space-y-2">
                                         <Tabs defaultValue="name" value={filterType} onValueChange={(value) => setFilterType(value as "name" | "email" | "user")}>
-                                                    <TabsList className="grid w-full grid-cols-3 h-7">
-                                                        <TabsTrigger value="name" className="text-xs">File Name</TabsTrigger>
-                                                        <TabsTrigger value="user" className="text-xs">User Name</TabsTrigger>
-                                                        <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
-                                                    </TabsList>
-                                                </Tabs>
-
+                                            <TabsList className="grid w-full grid-cols-3 h-7">
+                                                <TabsTrigger value="name" className="text-xs">File Name</TabsTrigger>
+                                                <TabsTrigger value="user" className="text-xs">User Name</TabsTrigger>
+                                                <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
+                                            </TabsList>
+                                        </Tabs>
                                         <div className="relative">
                                             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                                             <Input
@@ -455,7 +429,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                                 </button>
                                             )}
                                         </div>
-
                                         {pagination && (
                                             <div className="text-[10px] text-muted-foreground space-y-1">
                                                 <div>
@@ -466,7 +439,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                     </div>
                                 </Card>
                             )}
-
                             {isLoadingHistory ? (
                                 <Card className="border border-border/50">
                                     <div className="p-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -479,7 +451,10 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                     {history.map((doc) => (
                                         <Card
                                             key={doc.id}
-                                            className="border border-border/50 hover:border-primary/50 hover:bg-accent/5 transition-all py-2 cursor-pointer group min-h-[40px]"
+                                            className={cn(
+                                                "border hover:border-primary/50 hover:bg-accent/5 transition-all py-2 cursor-pointer group min-h-[40px]",
+                                                selectedDocumentId === doc.id ? "border-primary bg-primary/5" : "border-border/50"
+                                            )}
                                             onClick={() => handleHistoryClick(doc)}
                                         >
                                             <div className="p-2 flex items-center gap-2">
@@ -521,7 +496,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                     ))}
                                 </div>
                             ) : null}
-
                             {/* Pagination Controls */}
                             {pagination && pagination.totalPages > 1 && history.length > 0 && (
                                 <Card className="border border-border/50 bg-muted/20 p-2">
@@ -535,11 +509,9 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                         >
                                             <ChevronLeft className="w-3 h-3" />
                                         </Button>
-
                                         <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-1 text-center">
                                             Page <span className="font-semibold">{pagination.page}</span> of <span className="font-semibold">{pagination.totalPages}</span>
                                         </div>
-
                                         <Button
                                             variant="outline"
                                             size="sm"
@@ -552,7 +524,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                                     </div>
                                 </Card>
                             )}
-
                             {/* Empty State Messages */}
                             {!isLoadingHistory && history.length === 0 && (
                                 <Card className="border border-border/50 bg-muted/20">
@@ -565,7 +536,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocume
                     </div>
                 </ScrollArea>
             </aside>
-
             <Dialog open={showLimitDialog} onOpenChange={setShowLimitDialog}>
                 <DialogContent>
                     <DialogHeader>

@@ -42,6 +42,8 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import * as XLSX from "xlsx"
+
 interface ParsedDocument {
     id: string
     fileName: string
@@ -713,36 +715,36 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         window.document.body.removeChild(a)
         URL.revokeObjectURL(url)
     }
-const splitDoctors = (doctorText: any): string[] => {
-    // Case 1: Already an array
-    if (Array.isArray(doctorText)) {
+    const splitDoctors = (doctorText: any): string[] => {
+        // Case 1: Already an array
+        if (Array.isArray(doctorText)) {
+            return doctorText
+                .map(item => {
+                    if (typeof item === "string") {
+                        return item.trim();
+                    }
+                    if (typeof item === "object" && item !== null) {
+                        // Try multiple property names to find the doctor name
+                        const name = item.name || item.doctorName || item.fullName || item.displayName || item.reg_no || "";
+                        return String(name).trim();
+                    }
+                    return "";
+                })
+                .filter(Boolean); // Remove empty strings
+        }
+
+        // Case 2: Not a string
+        if (typeof doctorText !== "string") {
+            return [];
+        }
+
+        // Case 3: String with multiple doctors
         return doctorText
-            .map(item => {
-                if (typeof item === "string") {
-                    return item.trim();
-                }
-                if (typeof item === "object" && item !== null) {
-                    // Try multiple property names to find the doctor name
-                    const name = item.name || item.doctorName || item.fullName || item.displayName || item.reg_no || "";
-                    return String(name).trim();
-                }
-                return "";
-            })
-            .filter(Boolean); // Remove empty strings
-    }
-
-    // Case 2: Not a string
-    if (typeof doctorText !== "string") {
-        return [];
-    }
-
-    // Case 3: String with multiple doctors
-    return doctorText
-        .replace(/Dr\./g, "|Dr.")
-        .split("|")
-        .map(d => d.trim())
-        .filter(Boolean);
-};
+            .replace(/Dr\./g, "|Dr.")
+            .split("|")
+            .map(d => d.trim())
+            .filter(Boolean);
+    };
 
 
     const renderFieldValue = (value: any): string => {
@@ -801,17 +803,131 @@ const splitDoctors = (doctorText: any): string[] => {
     }
     const displayRecommendations = getDisplayRecommendations()
     const handleDownload = () => {
-        const dataStr = JSON.stringify(document.structuredData, null, 2)
-        const dataBlob = new Blob([dataStr], { type: "application/json" })
-        const url = URL.createObjectURL(dataBlob)
-        const link = document.createElement("a")
-        link.href = url
-        link.download = `${document.fileName.replace(/\.[^/.]+$/, "")}_parsed.json`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-    }
+        if (typeof document === "undefined" || !document?.structuredData) return;
+
+        const wb = XLSX.utils.book_new();
+
+        // Helper to add key-value sheet
+        const addKeyValueSheet = (data: any, sheetName: string) => {
+            if (!data) return;
+            const sheetData: any[][] = [["Key", "Value"]];
+            Object.entries(data).forEach(([key, value]: [string, any]) => {
+                sheetData.push([key, typeof value === "object" ? JSON.stringify(value) : value]);
+            });
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), sheetName);
+        };
+
+        // Helper to add table sheet
+        const addTableSheet = (dataArray: any[], sheetName: string, columns: string[]) => {
+            if (!Array.isArray(dataArray) || dataArray.length === 0) return;
+            const sheetData: any[][] = [columns];
+            dataArray.forEach((item) => {
+                sheetData.push(
+                    columns.map((col) => {
+                        const colKey = col.toLowerCase().replace(/\s/g, "");
+                        return item[colKey] || item[col] || "";
+                    }),
+                );
+            });
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), sheetName);
+        };
+
+        // Patient Info
+        addKeyValueSheet(document.structuredData.patientInfo, "Patient Info");
+
+        // Provider Info
+        addKeyValueSheet(document.structuredData.providerInfo, "Provider Info");
+
+        // Document Info
+        addKeyValueSheet(document.structuredData.documentInfo, "Document Info");
+
+        // Clinical Overview
+        addKeyValueSheet(
+            {
+                diagnosis: document.structuredData.clinicalData?.diagnosis,
+                secondaryDiagnoses: document.structuredData.clinicalData?.secondaryDiagnoses?.join(", "),
+                vitalSigns: JSON.stringify(document.structuredData.clinicalData?.vitalSigns),
+            },
+            "Clinical Overview",
+        );
+
+        // Medications
+        addTableSheet(document.structuredData.clinicalData?.medications, "Medications", [
+            "Name",
+            "Dosage",
+            "Frequency",
+            "Duration",
+        ]);
+
+        // Lab Results
+        addTableSheet(document.structuredData.clinicalData?.labResults, "Lab Results", [
+            "Test",
+            "Measured Value",
+            "Unit",
+            "Reference Range",
+            "Status",
+            "Notes",
+        ]);
+
+        // Procedures
+        if (document.structuredData.clinicalData?.procedures) {
+            addTableSheet(
+                document.structuredData.clinicalData.procedures.map((p: any) => ({ Procedure: typeof p === "string" ? p : p.name || JSON.stringify(p) })),
+                "Procedures",
+                ["Procedure"],
+            );
+        }
+
+        // Imaging Findings
+        addKeyValueSheet(document.structuredData.clinicalData?.imagingFindings, "Imaging Findings");
+
+        // Health Recommendations Summary
+        if (document.structuredData.healthRecommendations?.summary) {
+            addKeyValueSheet({ Summary: document.structuredData.healthRecommendations.summary }, "Rec Summary");
+        }
+
+        // Recommendations
+        addTableSheet(document.structuredData.healthRecommendations?.recommendations, "Recommendations", [
+            "Recommendation",
+            "Reason",
+            "Priority",
+            "Category",
+        ]);
+
+        // Warnings
+        addTableSheet(document.structuredData.healthRecommendations?.warnings, "Warnings", ["Warning", "Action", "Severity"]);
+
+        // Next Steps
+        if (document.structuredData.healthRecommendations?.nextSteps) {
+            addTableSheet(
+                document.structuredData.healthRecommendations.nextSteps.map((s: string) => ({ Step: s })),
+                "Next Steps",
+                ["Step"],
+            );
+        }
+
+        // Medical History
+        addTableSheet(document.structuredData.medicalHistoryQuestions, "Medical History", ["Question", "Answer"]);
+
+        // Photo Comparison
+        addKeyValueSheet(document.structuredData.photoComparison, "Photo Comparison");
+
+        // Categorized Fields
+        Object.entries(categorizedFields).forEach(([cat, fields]: [string, any]) => {
+            if (fields.length > 0) {
+                addTableSheet(fields, cat.charAt(0).toUpperCase() + cat.slice(1), ["Label", "Value"]);
+            }
+        });
+
+        // Document Summary
+        if (document.structuredData.summary) {
+            const summarySheet = XLSX.utils.aoa_to_sheet([[document.structuredData.summary]]);
+            XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
+        }
+
+        // Write the Excel file
+        XLSX.writeFile(wb, `${document.fileName.replace(/\.[^/.]+$/, "")}_parsed.xlsx`);
+    };
     const handleShare = async () => {
         const shareData = {
             title: `Medical Record - ${patientName}`,
@@ -888,21 +1004,21 @@ const splitDoctors = (doctorText: any): string[] => {
                                     <FileText className="w-3 h-3" />
                                     {structuredData?.documentInfo?.type || "Medical Document"}
                                 </Badge>
-                            {/*    {document.confidenceScore && (*/}
-                            {/*        <Badge*/}
-                            {/*            variant={*/}
-                            {/*                document.confidenceScore >= 80*/}
-                            {/*                    ? "default"*/}
-                            {/*                    : document.confidenceScore >= 60*/}
-                            {/*                        ? "secondary"*/}
-                            {/*                        : "destructive"*/}
-                            {/*            }*/}
-                            {/*            className="gap-1"*/}
-                            {/*        >*/}
-                            {/*            <CheckCircle2 className="w-3 h-3" />*/}
-                            {/*            {document.confidenceScore}% Confidence*/}
-                            {/*        </Badge>*/}
-                            {/*    )}*/}
+                                {/*    {document.confidenceScore && (*/}
+                                {/*        <Badge*/}
+                                {/*            variant={*/}
+                                {/*                document.confidenceScore >= 80*/}
+                                {/*                    ? "default"*/}
+                                {/*                    : document.confidenceScore >= 60*/}
+                                {/*                        ? "secondary"*/}
+                                {/*                        : "destructive"*/}
+                                {/*            }*/}
+                                {/*            className="gap-1"*/}
+                                {/*        >*/}
+                                {/*            <CheckCircle2 className="w-3 h-3" />*/}
+                                {/*            {document.confidenceScore}% Confidence*/}
+                                {/*        </Badge>*/}
+                                {/*    )}*/}
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                                 <div className="flex items-center gap-1">
@@ -1391,8 +1507,8 @@ const splitDoctors = (doctorText: any): string[] => {
                                 <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                     <div className="flex items-center gap-2">
                                         <div className={`w-6 h-6 rounded-full flex items-center justify-center ${structuredData.photoComparison.match?.toUpperCase() === "YES"
-                                                ? "bg-green-500/10"
-                                                : "bg-red-500/10"
+                                            ? "bg-green-500/10"
+                                            : "bg-red-500/10"
                                             }`}>
                                             {structuredData.photoComparison.match?.toUpperCase() === "YES" ? (
                                                 <CheckCircle2 className="w-4 h-4 text-green-600" />
@@ -1417,10 +1533,10 @@ const splitDoctors = (doctorText: any): string[] => {
                                             <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
                                                 <div
                                                     className={`h-full transition-all ${structuredData.photoComparison.confidence?.toLowerCase() === "high"
-                                                            ? "bg-green-500 w-full"
-                                                            : structuredData.photoComparison.confidence?.toLowerCase() === "medium"
-                                                                ? "bg-yellow-500 w-2/3"
-                                                                : "bg-red-500 w-1/3"
+                                                        ? "bg-green-500 w-full"
+                                                        : structuredData.photoComparison.confidence?.toLowerCase() === "medium"
+                                                            ? "bg-yellow-500 w-2/3"
+                                                            : "bg-red-500 w-1/3"
                                                         }`}
                                                 />
                                             </div>
