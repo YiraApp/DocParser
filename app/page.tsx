@@ -119,7 +119,6 @@ export default function HomePage() {
                     jobId: "",
                 })
                 clearInterval(pollInterval)
-                alert("Document processing took too long. Please try again.")
             }
         }, 1000)
 

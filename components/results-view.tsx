@@ -82,6 +82,7 @@ function normalizeField(field: any): { label: string; value: string } | null {
     return null
 }
 // Add this helper function before the main component
+// Update the shouldExcludeField function with better lab result matching
 function shouldExcludeField(label: string, structuredData: any): boolean {
     const labelLower = label.toLowerCase()
 
@@ -106,7 +107,100 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
         'consultant'
     ]
 
-    return skipLabels.some(skip => labelLower.includes(skip))
+    // Check basic skip labels
+    if (skipLabels.some(skip => labelLower.includes(skip))) {
+        return true
+    }
+
+    // Skip if this field data already exists in structured sections
+    // Check clinical data
+    if (structuredData?.clinicalData) {
+        const clinicalData = structuredData.clinicalData
+
+        // Check if it's a diagnosis (already shown in Clinical tab)
+        if (clinicalData.diagnosis && labelLower.includes('diagnosis')) {
+            return true
+        }
+
+        // Check if it's in secondary diagnoses
+        if (clinicalData.secondaryDiagnoses?.some((d: string) =>
+            labelLower.includes(d.toLowerCase()))) {
+            return true
+        }
+
+        // Check if it's a lab result (already shown in Laboratory Results)
+        // More robust matching - check if any part of the label matches a test name
+        if (clinicalData.labResults?.length > 0) {
+            for (const result of clinicalData.labResults) {
+                const testName = result.test?.toLowerCase() || ''
+                if (testName && labelLower.includes(testName)) {
+                    return true
+                }
+                // Also check if the label starts with or contains the test name
+                if (testName && (labelLower.startsWith(testName) || labelLower.split(/[\s:,\-]/)[0].includes(testName.split(/[\s:,\-]/)[0]))) {
+                    return true
+                }
+            }
+        }
+
+        // Check if it's a medication (already shown in Medications section)
+        if (clinicalData.medications?.length > 0) {
+            for (const med of clinicalData.medications) {
+                const medName = med.name?.toLowerCase() || ''
+                if (medName && (labelLower.includes(medName) || labelLower.startsWith(medName))) {
+                    return true
+                }
+            }
+        }
+
+        // Check vital signs - be more strict, check exact matches only
+        if (clinicalData.vitalSigns) {
+            const vitalSignKeys = Object.keys(clinicalData.vitalSigns).map(k => k.toLowerCase())
+            // Check if label matches vital sign keywords exactly or as prefix
+            const vitalKeywords = ['blood pressure', 'heart rate', 'pulse', 'temperature', 'spo2', 'oxygen saturation', 'respiratory rate', 'weight', 'height', 'bmi']
+            if (vitalKeywords.some(vital => labelLower.includes(vital))) {
+                return true
+            }
+        }
+    }
+
+    // Check document info
+    if (structuredData?.documentInfo) {
+        if (structuredData.documentInfo.reportDate && (labelLower.includes('report date') || labelLower.includes('date of report'))) {
+            return true
+        }
+        if (structuredData.documentInfo.type && labelLower.includes('document type')) {
+            return true
+        }
+    }
+
+    // Check provider info
+    if (structuredData?.providerInfo) {
+        if (structuredData.providerInfo.hospitalName && labelLower.includes('hospital')) {
+            return true
+        }
+        if (structuredData.providerInfo.department && labelLower.includes('department')) {
+            return true
+        }
+        if (structuredData.providerInfo.doctorName && (labelLower.includes('doctor') || labelLower.includes('physician') || labelLower.includes('consultant'))) {
+            return true
+        }
+    }
+
+    // Check patient info
+    if (structuredData?.patientInfo) {
+        if (structuredData.patientInfo.dateOfBirth && (labelLower.includes('date of birth') || labelLower.includes('dob'))) {
+            return true
+        }
+        if (structuredData.patientInfo.age && labelLower.includes('age')) {
+            return true
+        }
+        if (structuredData.patientInfo.gender && (labelLower.includes('gender') || labelLower.includes('sex'))) {
+            return true
+        }
+    }
+
+    return false
 }
 // Update the categorizeFields function to accept structuredData as parameter
 function categorizeFields(fields: Array<any>, structuredData: any = {}) {
@@ -617,20 +711,36 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         window.document.body.removeChild(a)
         URL.revokeObjectURL(url)
     }
-    const splitDoctors = (doctorText: any): string[] => {
-        if (Array.isArray(doctorText)) {
-            return doctorText;
-        }
-
-        if (typeof doctorText !== "string") {
-            return [];
-        }
+const splitDoctors = (doctorText: any): string[] => {
+    // Case 1: Already an array
+    if (Array.isArray(doctorText)) {
         return doctorText
-            .replace(/Dr\./g, "|Dr.")
-            .split("|")
-            .map(d => d.trim())
-            .filter(Boolean);
-    };
+            .map(item => {
+                if (typeof item === "string") {
+                    return item.trim();
+                }
+                if (typeof item === "object" && item !== null) {
+                    // Try multiple property names to find the doctor name
+                    const name = item.name || item.doctorName || item.fullName || item.displayName || item.reg_no || "";
+                    return String(name).trim();
+                }
+                return "";
+            })
+            .filter(Boolean); // Remove empty strings
+    }
+
+    // Case 2: Not a string
+    if (typeof doctorText !== "string") {
+        return [];
+    }
+
+    // Case 3: String with multiple doctors
+    return doctorText
+        .replace(/Dr\./g, "|Dr.")
+        .split("|")
+        .map(d => d.trim())
+        .filter(Boolean);
+};
 
 
     const renderFieldValue = (value: any): string => {
@@ -776,21 +886,21 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     <FileText className="w-3 h-3" />
                                     {structuredData?.documentInfo?.type || "Medical Document"}
                                 </Badge>
-                                {document.confidenceScore && (
-                                    <Badge
-                                        variant={
-                                            document.confidenceScore >= 80
-                                                ? "default"
-                                                : document.confidenceScore >= 60
-                                                    ? "secondary"
-                                                    : "destructive"
-                                        }
-                                        className="gap-1"
-                                    >
-                                        <CheckCircle2 className="w-3 h-3" />
-                                        {document.confidenceScore}% Confidence
-                                    </Badge>
-                                )}
+                            {/*    {document.confidenceScore && (*/}
+                            {/*        <Badge*/}
+                            {/*            variant={*/}
+                            {/*                document.confidenceScore >= 80*/}
+                            {/*                    ? "default"*/}
+                            {/*                    : document.confidenceScore >= 60*/}
+                            {/*                        ? "secondary"*/}
+                            {/*                        : "destructive"*/}
+                            {/*            }*/}
+                            {/*            className="gap-1"*/}
+                            {/*        >*/}
+                            {/*            <CheckCircle2 className="w-3 h-3" />*/}
+                            {/*            {document.confidenceScore}% Confidence*/}
+                            {/*        </Badge>*/}
+                            {/*    )}*/}
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                                 <div className="flex items-center gap-1">
@@ -986,47 +1096,47 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </Card>
                     </div>
                     {/* Document Summary */}
-                    {structuredData?.documentSummary && (
-                        <Card className="border border-border/50">
-                            <div className="p-4 space-y-2">
-                                <div className="flex items-center gap-1">
-                                    <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
-                                        <FileText className="w-3 h-3 text-primary" />
-                                    </div>
-                                    <h3 className="font-semibold text-foreground">Document Summary</h3>
-                                </div>
-                                <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
-                                    {structuredData.documentSummary}
-                                </p>
-                            </div>
-                        </Card>
-                    )}
+                    {/*{structuredData?.documentSummary && (*/}
+                    {/*    <Card className="border border-border/50">*/}
+                    {/*        <div className="p-4 space-y-2">*/}
+                    {/*            <div className="flex items-center gap-1">*/}
+                    {/*                <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">*/}
+                    {/*                    <FileText className="w-3 h-3 text-primary" />*/}
+                    {/*                </div>*/}
+                    {/*                <h3 className="font-semibold text-foreground">Document Summary</h3>*/}
+                    {/*            </div>*/}
+                    {/*            <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">*/}
+                    {/*                {structuredData.documentSummary}*/}
+                    {/*            </p>*/}
+                    {/*        </div>*/}
+                    {/*    </Card>*/}
+                    {/*)}*/}
                     {/* Bind identifiers and dates to overview as they are general */}
-                    {categorizedFields.identifiers.length > 0 && (
-                        <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">
-                            <div className="p-4 space-y-4">
-                                <div className="flex items-center gap-2">
-                                    <div className="p-1.5 rounded-md bg-indigo-500/10">
-                                        <Hash className="w-4 h-4 text-indigo-600" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <h3 className="text-base font-semibold text-foreground">Medical Record Identifiers</h3>
-                                        <p className="text-xs text-muted-foreground mt-1">Patient and admission identification numbers</p>
-                                    </div>
-                                </div>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    {categorizedFields.identifiers.map((field, index) => (
-                                        <div key={index} className="p-3 rounded-md bg-background border border-border/50 space-y-1">
-                                            <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{field.label}</p>
-                                            <p className="text-foreground leading-relaxed text-pretty whitespace-pre-wrap">
-                                                {renderFieldValue(field.value)}
-                                            </p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </Card>
-                    )}
+                    {/*{categorizedFields.identifiers.length > 0 && (*/}
+                    {/*    <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">*/}
+                    {/*        <div className="p-4 space-y-4">*/}
+                    {/*            <div className="flex items-center gap-2">*/}
+                    {/*                <div className="p-1.5 rounded-md bg-indigo-500/10">*/}
+                    {/*                    <Hash className="w-4 h-4 text-indigo-600" />*/}
+                    {/*                </div>*/}
+                    {/*                <div className="flex-1">*/}
+                    {/*                    <h3 className="text-base font-semibold text-foreground">Medical Record Identifiers</h3>*/}
+                    {/*                    <p className="text-xs text-muted-foreground mt-1">Patient and admission identification numbers</p>*/}
+                    {/*                </div>*/}
+                    {/*            </div>*/}
+                    {/*            <div className="grid gap-3 sm:grid-cols-2">*/}
+                    {/*                {categorizedFields.identifiers.map((field, index) => (*/}
+                    {/*                    <div key={index} className="p-3 rounded-md bg-background border border-border/50 space-y-1">*/}
+                    {/*                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{field.label}</p>*/}
+                    {/*                        <p className="text-foreground leading-relaxed text-pretty whitespace-pre-wrap">*/}
+                    {/*                            {renderFieldValue(field.value)}*/}
+                    {/*                        </p>*/}
+                    {/*                    </div>*/}
+                    {/*                ))}*/}
+                    {/*            </div>*/}
+                    {/*        </div>*/}
+                    {/*    </Card>*/}
+                    {/*)}*/}
                     {categorizedFields.dates.length > 0 && (
                         <Card className="border border-cyan-500/20 bg-cyan-500/5 shadow-sm">
                             <div className="p-4 space-y-4">
@@ -1122,55 +1232,55 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </Card>
                     )}
                     {/* Lab Results */}
-                    {structuredData?.clinicalData?.labResults && structuredData.clinicalData.labResults.length > 0 && (
-                        <Card className="border border-border/50">
-                            <div className="p-4 space-y-3">
-                                <div className="flex items-center gap-1">
-                                    <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center">
-                                        <TestTube className="w-3 h-3 text-accent" />
-                                    </div>
-                                    <h3 className="font-semibold text-foreground">Lab Results</h3>
-                                </div>
-                                <div className="space-y-1">
-                                    {structuredData.clinicalData.labResults.map((result: any, idx: number) => (
-                                        <div key={idx} className="p-2 bg-muted/30 rounded-md border border-border/30">
-                                            <div className="flex items-center justify-between">
-                                                <p className="text-sm font-semibold text-foreground">{result.test}</p>
-                                                {result.status && (
-                                                    <Badge
-                                                        variant={
-                                                            result.status === "Normal"
-                                                                ? "default"
-                                                                : result.status === "High" || result.status === "Low"
-                                                                    ? "secondary"
-                                                                    : "destructive"
-                                                        }
-                                                    >
-                                                        {result.status}
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <div className="mt-1 grid grid-cols-2 gap-1 text-xs">
-                                                <div>
-                                                    <span className="text-muted-foreground">Value:</span>
-                                                    <p className="font-medium text-foreground">
-                                                        {result.measuredValue} {result.unit}
-                                                    </p>
-                                                </div>
-                                                {result.referenceRange && (
-                                                    <div>
-                                                        <span className="text-muted-foreground">Reference:</span>
-                                                        <p className="font-medium text-foreground">{result.referenceRange}</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            {result.notes && <p className="mt-1 text-xs text-muted-foreground italic">{result.notes}</p>}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </Card>
-                    )}
+                    {/*{structuredData?.clinicalData?.labResults && structuredData.clinicalData.labResults.length > 0 && (*/}
+                    {/*    <Card className="border border-border/50">*/}
+                    {/*        <div className="p-4 space-y-3">*/}
+                    {/*            <div className="flex items-center gap-1">*/}
+                    {/*                <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center">*/}
+                    {/*                    <TestTube className="w-3 h-3 text-accent" />*/}
+                    {/*                </div>*/}
+                    {/*                <h3 className="font-semibold text-foreground">Lab Results</h3>*/}
+                    {/*            </div>*/}
+                    {/*            <div className="space-y-1">*/}
+                    {/*                {structuredData.clinicalData.labResults.map((result: any, idx: number) => (*/}
+                    {/*                    <div key={idx} className="p-2 bg-muted/30 rounded-md border border-border/30">*/}
+                    {/*                        <div className="flex items-center justify-between">*/}
+                    {/*                            <p className="text-sm font-semibold text-foreground">{result.test}</p>*/}
+                    {/*                            {result.status && (*/}
+                    {/*                                <Badge*/}
+                    {/*                                    variant={*/}
+                    {/*                                        result.status === "Normal"*/}
+                    {/*                                            ? "default"*/}
+                    {/*                                            : result.status === "High" || result.status === "Low"*/}
+                    {/*                                                ? "secondary"*/}
+                    {/*                                                : "destructive"*/}
+                    {/*                                    }*/}
+                    {/*                                >*/}
+                    {/*                                    {result.status}*/}
+                    {/*                                </Badge>*/}
+                    {/*                            )}*/}
+                    {/*                        </div>*/}
+                    {/*                        <div className="mt-1 grid grid-cols-2 gap-1 text-xs">*/}
+                    {/*                            <div>*/}
+                    {/*                                <span className="text-muted-foreground">Value:</span>*/}
+                    {/*                                <p className="font-medium text-foreground">*/}
+                    {/*                                    {result.measuredValue} {result.unit}*/}
+                    {/*                                </p>*/}
+                    {/*                            </div>*/}
+                    {/*                            {result.referenceRange && (*/}
+                    {/*                                <div>*/}
+                    {/*                                    <span className="text-muted-foreground">Reference:</span>*/}
+                    {/*                                    <p className="font-medium text-foreground">{result.referenceRange}</p>*/}
+                    {/*                                </div>*/}
+                    {/*                            )}*/}
+                    {/*                        </div>*/}
+                    {/*                        {result.notes && <p className="mt-1 text-xs text-muted-foreground italic">{result.notes}</p>}*/}
+                    {/*                    </div>*/}
+                    {/*                ))}*/}
+                    {/*            </div>*/}
+                    {/*        </div>*/}
+                    {/*    </Card>*/}
+                    {/*)}*/}
                     {/* Vital Signs */}
                     {structuredData?.clinicalData?.vitalSigns &&
                         Object.values(structuredData.clinicalData.vitalSigns).some((v) => v !== null) && (
