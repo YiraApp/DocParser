@@ -14,20 +14,16 @@ if (!MONGODB_URI || !DB_NAME) {
 }
 
 async function initializeDatabase() {
-    const client = new MongoClient(MONGODB_URI);
-
+    const client = new MongoClient(MONGODB_URI!);
     try {
         await client.connect();
         console.log('✓ Connected to MongoDB');
         console.log(`✓ Using database: ${DB_NAME}`);
-        console.log(`✓ URI: ${MONGODB_URI.split('@')[1]?.split('?')[0] || 'local'}`);
-
-        const db = client.db(DB_NAME);
-
+        console.log(`✓ URI: ${MONGODB_URI!.split('@')[1]?.split('?')[0] || 'local'}`);
+        const db = client.db(DB_NAME!);
         // Create collections with schema validation
         const collections = await db.listCollections().toArray();
         const collectionNames = collections.map((c) => c.name);
-
         // 1. Accounts Collection
         if (!collectionNames.includes('accounts')) {
             await db.createCollection('accounts', {
@@ -50,12 +46,10 @@ async function initializeDatabase() {
                 },
             });
             console.log('✓ Created accounts collection');
-
             // Create unique index on email
             await db.collection('accounts').createIndex({ email: 1 }, { unique: true });
             console.log('✓ Created unique index on accounts.email');
         }
-
         // 2. Documents Collection
         if (!collectionNames.includes('documents')) {
             await db.createCollection('documents', {
@@ -84,13 +78,11 @@ async function initializeDatabase() {
                 },
             });
             console.log('✓ Created documents collection');
-
             // Create indexes
             await db.collection('documents').createIndex({ user_email: 1, created_at: -1 });
             await db.collection('documents').createIndex({ job_id: 1 });
             console.log('✓ Created indexes on documents');
         }
-
         // 3. Webhook Responses Collection
         if (!collectionNames.includes('webhook_responses')) {
             await db.createCollection('webhook_responses', {
@@ -116,12 +108,10 @@ async function initializeDatabase() {
                 },
             });
             console.log('✓ Created webhook_responses collection');
-
             // Create index on job_id
             await db.collection('webhook_responses').createIndex({ job_id: 1 });
             console.log('✓ Created indexes on webhook_responses');
         }
-
         // 4. Upload History Collection
         if (!collectionNames.includes('upload_history')) {
             await db.createCollection('upload_history', {
@@ -141,19 +131,16 @@ async function initializeDatabase() {
                 },
             });
             console.log('✓ Created upload_history collection');
-
             // Create index
             await db.collection('upload_history').createIndex({ user_email: 1, created_at: -1 });
             console.log('✓ Created indexes on upload_history');
         }
-
         console.log('\n✅ Database initialization complete!');
         console.log('\nCollections created:');
-        console.log('  - accounts');
-        console.log('  - documents');
-        console.log('  - webhook_responses');
-        console.log('  - upload_history');
-
+        console.log(' - accounts');
+        console.log(' - documents');
+        console.log(' - webhook_responses');
+        console.log(' - upload_history');
     } catch (error) {
         console.error('❌ Error initializing database:', error);
         process.exit(1);
