@@ -11,10 +11,12 @@ import { useAuth } from "@/lib/auth-context"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
 
 interface LeftSidebarProps {
     onUploadSuccess: (document: any) => void
     onHistorySelect?: (document: any) => void
+    processingDocumentId?: string
 }
 
 interface HistoryDocument {
@@ -36,7 +38,7 @@ interface PaginationInfo {
     hasPrevPage: boolean
 }
 
-export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarProps) {
+export function LeftSidebar({ onUploadSuccess, onHistorySelect, processingDocumentId }: LeftSidebarProps) {
     const [file, setFile] = useState<File | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
@@ -482,7 +484,11 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                         >
                                             <div className="p-2 flex items-center gap-2">
                                                 <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
-                                                    <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+                                                    {processingDocumentId === doc.id ? (
+                                                        <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
+                                                    ) : (
+                                                        <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+                                                    )}
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
@@ -498,9 +504,16 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect }: LeftSidebarPro
                                                             {doc.user_email}
                                                         </p>
                                                     )}
-                                                    <p className="text-[10px] text-muted-foreground">
-                                                        {formatDate(doc.created_at)}
-                                                    </p>
+                                                    <div className="flex items-center gap-1">
+                                                        <p className="text-[10px] text-muted-foreground">
+                                                            {formatDate(doc.created_at)}
+                                                        </p>
+                                                        {processingDocumentId === doc.id && (
+                                                            <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 border-0">
+                                                                In Progress
+                                                            </Badge>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
                                             </div>

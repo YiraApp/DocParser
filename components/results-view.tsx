@@ -617,6 +617,22 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         window.document.body.removeChild(a)
         URL.revokeObjectURL(url)
     }
+    const splitDoctors = (doctorText: any): string[] => {
+        if (Array.isArray(doctorText)) {
+            return doctorText;
+        }
+
+        if (typeof doctorText !== "string") {
+            return [];
+        }
+        return doctorText
+            .replace(/Dr\./g, "|Dr.")
+            .split("|")
+            .map(d => d.trim())
+            .filter(Boolean);
+    };
+
+
     const renderFieldValue = (value: any): string => {
         if (value === null || value === undefined) {
             return "N/A"
@@ -896,39 +912,71 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         {/* Provider Information - Integrated with categorized hospital fields */}
                         <Card className="border border-border/50">
                             <div className="p-4 space-y-3">
-                                <div className="flex items-center gap-1">
-                                    <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center">
-                                        <Building2 className="w-3 h-3 text-accent" />
+                                {/* Header */}
+                                <div className="flex items-center gap-2">
+                                    <div className="w-7 h-7 rounded-md bg-blue-100 flex items-center justify-center">
+                                        <Building2 className="w-4 h-4 text-blue-600" />
                                     </div>
                                     <h3 className="font-semibold text-foreground">Healthcare Provider</h3>
                                 </div>
+
+                                {/* Content */}
                                 <div className="space-y-2">
+                                    {/* Hospital */}
                                     {structuredData?.providerInfo?.hospitalName && (
                                         <div>
-                                            <p className="text-xs text-muted-foreground">Hospital/Clinic</p>
-                                            <p className="text-sm font-medium text-foreground">{structuredData.providerInfo.hospitalName}</p>
+                                            <p className="text-xs text-muted-foreground">Hospital / Clinic</p>
+                                            <p className="text-sm font-medium text-foreground">
+                                                {structuredData.providerInfo.hospitalName}
+                                            </p>
                                         </div>
                                     )}
+
+                                    {/* Department */}
                                     {structuredData?.providerInfo?.department && (
                                         <div>
                                             <p className="text-xs text-muted-foreground">Department</p>
-                                            <p className="text-sm font-medium text-foreground">{structuredData.providerInfo.department}</p>
+                                            <p className="text-sm font-medium text-foreground">
+                                                {structuredData.providerInfo.department}
+                                            </p>
                                         </div>
                                     )}
+
+                                    {/* Doctors (one by one) */}
                                     {structuredData?.providerInfo?.doctorName && (
                                         <div>
-                                            <p className="text-xs text-muted-foreground">Doctor</p>
-                                            <p className="text-sm font-medium text-foreground">{structuredData.providerInfo.doctorName}</p>
+                                            <p className="text-xs text-muted-foreground">Doctor(s)</p>
+
+                                            <div className="space-y-1">
+                                                {splitDoctors(structuredData.providerInfo.doctorName).map(
+                                                    (doctor, index) => (
+                                                        <p
+                                                            key={index}
+                                                            className="text-sm font-medium text-foreground"
+                                                        >
+                                                            {doctor.trim()}
+                                                        </p>
+                                                    )
+                                                )}
+                                            </div>
                                         </div>
                                     )}
-                                    {/* Bind categorized hospital fields here for overview */}
+
+                                    {/* Additional Hospital Details */}
                                     {categorizedFields.hospital.length > 0 && (
-                                        <div className="space-y-2 mt-2 pt-2 border-t border-border/50">
-                                            <p className="text-xs font-semibold text-muted-foreground">Additional Details</p>
+                                        <div className="space-y-2 mt-3 pt-3 border-t border-border/50">
+                                            <p className="text-xs font-semibold text-muted-foreground">
+                                                Additional Details
+                                            </p>
+
                                             {categorizedFields.hospital.map((field, index) => (
                                                 <div key={index} className="space-y-1">
-                                                    <p className="text-xs text-muted-foreground">{field.label}</p>
-                                                    <p className="text-sm font-medium text-foreground">{renderFieldValue(field.value)}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {field.label}
+                                                    </p>
+                                                    <p className="text-sm font-medium text-foreground">
+                                                        {renderFieldValue(field.value)}
+                                                    </p>
                                                 </div>
                                             ))}
                                         </div>

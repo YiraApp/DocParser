@@ -138,7 +138,7 @@ export default function HomePage() {
     }
 
     const handleUploadSuccess = (document: any) => {
-        // If document is still processing, show spinner
+        // If document is still processing, track it in sidebar
         if (document.status === "processing") {
             setProcessingState({
                 isProcessing: true,
@@ -369,37 +369,10 @@ export default function HomePage() {
                 <LeftSidebar
                     onUploadSuccess={handleUploadSuccess}
                     onHistorySelect={handleHistorySelect}
+                    processingDocumentId={processingState.documentId}
                 />
                 <main className="flex-1 overflow-y-auto">
-                    {processingState.isProcessing ? (
-                        <div className="flex items-center justify-center min-h-full p-6">
-                            <Card className="border border-blue-500/20 bg-blue-50 dark:bg-blue-950/30 shadow-lg max-w-md w-full">
-                                <div className="p-8 space-y-6">
-                                    <div className="flex items-center justify-center">
-                                        <div className="relative">
-                                            <div className="absolute inset-0 bg-blue-600/20 rounded-full blur-xl animate-pulse"></div>
-                                            <Loader2 className="w-16 h-16 animate-spin text-blue-600 relative z-10" />
-                                        </div>
-                                    </div>
-                                    <div className="text-center space-y-3">
-                                        <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
-                                            {processingState.fileName}
-                                        </p>
-                                        <p className="text-base font-medium text-blue-700 dark:text-blue-200">
-                                            ✓ File uploaded successfully
-                                        </p>
-                                        <p className="text-sm text-blue-600 dark:text-blue-300">
-                                            ⏳ Processing started. Results will be available shortly (3–4 mins)
-                                        </p>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <Progress value={100} className="h-2" />
-                                       
-                                    </div>
-                                </div>
-                            </Card>
-                        </div>
-                    ) : showResults ? (
+                    {showResults ? (
                         <div className="p-4 sm:p-6">
                             <ResultsSection
                                 document={parsedDocument}
