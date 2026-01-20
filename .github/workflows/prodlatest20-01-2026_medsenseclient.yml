@@ -35,7 +35,9 @@ jobs:
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ env.WEBAPP_NAME }}
+          app-name: medsenseclient
+          slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4CD99C0A8E5644A59F1852B46B253D9A }}
           package: ./build/standalone
+
 
