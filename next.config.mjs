@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     // TypeScript configuration
+      reactStrictMode: true,
+  distDir: "build",
+  output: "standalone",
+
     typescript: {
         ignoreBuildErrors: true,
     },
@@ -41,3 +45,4 @@ const nextConfig = {
 }
 
 export default nextConfig
+
