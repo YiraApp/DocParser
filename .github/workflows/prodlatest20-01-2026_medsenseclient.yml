@@ -22,7 +22,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build Next.js app
         run: npm run build
@@ -43,3 +43,4 @@ jobs:
           slot-name: 'Production'
           package: deploy
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_97F18E18B05D473CAEA45A2F406F7627 }}
+
