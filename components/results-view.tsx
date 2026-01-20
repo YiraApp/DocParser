@@ -43,7 +43,6 @@ import {
 import Link from "next/link"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import * as XLSX from "xlsx"
-
 interface ParsedDocument {
     id: string
     fileName: string
@@ -89,7 +88,6 @@ function normalizeField(field: any): { label: string; value: string } | null {
 // Update the shouldExcludeField function with better lab result matching
 function shouldExcludeField(label: string, structuredData: any): boolean {
     const labelLower = label.toLowerCase()
-
     // Skip fields that are already displayed in the main section
     const skipLabels = [
         'patient name',
@@ -110,28 +108,23 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
         'clinician name',
         'consultant'
     ]
-
     // Check basic skip labels
     if (skipLabels.some(skip => labelLower.includes(skip))) {
         return true
     }
-
     // Skip if this field data already exists in structured sections
     // Check clinical data
     if (structuredData?.clinicalData) {
         const clinicalData = structuredData.clinicalData
-
         // Check if it's a diagnosis (already shown in Clinical tab)
         if (clinicalData.diagnosis && labelLower.includes('diagnosis')) {
             return true
         }
-
         // Check if it's in secondary diagnoses
         if (clinicalData.secondaryDiagnoses?.some((d: string) =>
             labelLower.includes(d.toLowerCase()))) {
             return true
         }
-
         // Check if it's a lab result (already shown in Laboratory Results)
         // More robust matching - check if any part of the label matches a test name
         if (clinicalData.labResults?.length > 0) {
@@ -146,7 +139,6 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
                 }
             }
         }
-
         // Check if it's a medication (already shown in Medications section)
         if (clinicalData.medications?.length > 0) {
             for (const med of clinicalData.medications) {
@@ -156,7 +148,6 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
                 }
             }
         }
-
         // Check vital signs - be more strict, check exact matches only
         if (clinicalData.vitalSigns) {
             const vitalSignKeys = Object.keys(clinicalData.vitalSigns).map(k => k.toLowerCase())
@@ -167,7 +158,6 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
             }
         }
     }
-
     // Check document info
     if (structuredData?.documentInfo) {
         if (structuredData.documentInfo.reportDate && (labelLower.includes('report date') || labelLower.includes('date of report'))) {
@@ -177,7 +167,6 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
             return true
         }
     }
-
     // Check provider info
     if (structuredData?.providerInfo) {
         if (structuredData.providerInfo.hospitalName && labelLower.includes('hospital')) {
@@ -190,7 +179,6 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
             return true
         }
     }
-
     // Check patient info
     if (structuredData?.patientInfo) {
         if (structuredData.patientInfo.dateOfBirth && (labelLower.includes('date of birth') || labelLower.includes('dob'))) {
@@ -203,7 +191,6 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
             return true
         }
     }
-
     return false
 }
 // Update the categorizeFields function to accept structuredData as parameter
@@ -372,20 +359,17 @@ function categorizeFields(fields: Array<any>, structuredData: any = {}) {
         "occupation",
         "blood group",
     ]
-
     fields.forEach((field) => {
         const normalizedField = normalizeField(field)
         if (!normalizedField) {
             console.warn("[v0] Skipping invalid field (could not normalize):", field)
             return
         }
-
         // Skip fields that are already shown in structured data
         if (shouldExcludeField(normalizedField.label, structuredData)) {
             console.warn("[v0] Skipping duplicate field:", normalizedField.label)
             return
         }
-
         const labelLower = normalizedField.label.toLowerCase()
         if (billingKeywords.some((kw) => labelLower.includes(kw))) {
             categories.billing.push(normalizedField)
@@ -732,12 +716,10 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 })
                 .filter(Boolean); // Remove empty strings
         }
-
         // Case 2: Not a string
         if (typeof doctorText !== "string") {
             return [];
         }
-
         // Case 3: String with multiple doctors
         return doctorText
             .replace(/Dr\./g, "|Dr.")
@@ -745,8 +727,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             .map(d => d.trim())
             .filter(Boolean);
     };
-
-
     const renderFieldValue = (value: any): string => {
         if (value === null || value === undefined) {
             return "N/A"
@@ -804,9 +784,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
     const displayRecommendations = getDisplayRecommendations()
     const handleDownload = () => {
         if (typeof document === "undefined" || !document?.structuredData) return;
-
         const wb = XLSX.utils.book_new();
-
         // Helper to add key-value sheet
         const addKeyValueSheet = (data: any, sheetName: string) => {
             if (!data) return;
@@ -816,7 +794,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             });
             XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), sheetName);
         };
-
         // Helper to add table sheet
         const addTableSheet = (dataArray: any[], sheetName: string, columns: string[]) => {
             if (!Array.isArray(dataArray) || dataArray.length === 0) return;
@@ -831,16 +808,12 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             });
             XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), sheetName);
         };
-
         // Patient Info
         addKeyValueSheet(document.structuredData.patientInfo, "Patient Info");
-
         // Provider Info
         addKeyValueSheet(document.structuredData.providerInfo, "Provider Info");
-
         // Document Info
         addKeyValueSheet(document.structuredData.documentInfo, "Document Info");
-
         // Clinical Overview
         addKeyValueSheet(
             {
@@ -850,7 +823,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             },
             "Clinical Overview",
         );
-
         // Medications
         addTableSheet(document.structuredData.clinicalData?.medications, "Medications", [
             "Name",
@@ -858,7 +830,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             "Frequency",
             "Duration",
         ]);
-
         // Lab Results
         addTableSheet(document.structuredData.clinicalData?.labResults, "Lab Results", [
             "Test",
@@ -868,24 +839,20 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             "Status",
             "Notes",
         ]);
-
         // Procedures
         if (document.structuredData.clinicalData?.procedures) {
             addTableSheet(
-                document.structuredData.clinicalData.procedures.map((p: any) => ({ Procedure: typeof p === "string" ? p : p.name || JSON.stringify(p) })),
+                document.structuredData.clinicalData.procedures.map((p: any) => ({ Procedure: typeof p === "string" ? p : p.procedure_name || p.name || JSON.stringify(p) })),
                 "Procedures",
                 ["Procedure"],
             );
         }
-
         // Imaging Findings
         addKeyValueSheet(document.structuredData.clinicalData?.imagingFindings, "Imaging Findings");
-
         // Health Recommendations Summary
         if (document.structuredData.healthRecommendations?.summary) {
             addKeyValueSheet({ Summary: document.structuredData.healthRecommendations.summary }, "Rec Summary");
         }
-
         // Recommendations
         addTableSheet(document.structuredData.healthRecommendations?.recommendations, "Recommendations", [
             "Recommendation",
@@ -893,10 +860,8 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             "Priority",
             "Category",
         ]);
-
         // Warnings
         addTableSheet(document.structuredData.healthRecommendations?.warnings, "Warnings", ["Warning", "Action", "Severity"]);
-
         // Next Steps
         if (document.structuredData.healthRecommendations?.nextSteps) {
             addTableSheet(
@@ -905,26 +870,21 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 ["Step"],
             );
         }
-
         // Medical History
         addTableSheet(document.structuredData.medicalHistoryQuestions, "Medical History", ["Question", "Answer"]);
-
         // Photo Comparison
         addKeyValueSheet(document.structuredData.photoComparison, "Photo Comparison");
-
         // Categorized Fields
         Object.entries(categorizedFields).forEach(([cat, fields]: [string, any]) => {
             if (fields.length > 0) {
                 addTableSheet(fields, cat.charAt(0).toUpperCase() + cat.slice(1), ["Label", "Value"]);
             }
         });
-
         // Document Summary
         if (document.structuredData.summary) {
             const summarySheet = XLSX.utils.aoa_to_sheet([[document.structuredData.summary]]);
             XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
         }
-
         // Write the Excel file
         XLSX.writeFile(wb, `${document.fileName.replace(/\.[^/.]+$/, "")}_parsed.xlsx`);
     };
@@ -934,7 +894,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             text: `Parsed medical document for ${patientName}`,
             url: window.location.href,
         }
-
         if (navigator.share) {
             try {
                 await navigator.share(shareData)
@@ -943,7 +902,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 console.log("Web Share cancelled or failed:", err)
             }
         }
-
         // Fallback: copy link to clipboard
         try {
             const textArea = document.createElement("textarea")
@@ -955,10 +913,8 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             document.body.appendChild(textArea)
             textArea.focus()
             textArea.select()
-
             const successful = document.execCommand("copy")
             document.body.removeChild(textArea)
-
             if (successful) {
                 alert("Link copied to clipboard!")
             } else {
@@ -1028,21 +984,21 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     <FileText className="w-3 h-3" />
                                     {structuredData?.documentInfo?.type || "Medical Document"}
                                 </Badge>
-                                {/*    {document.confidenceScore && (*/}
-                                {/*        <Badge*/}
-                                {/*            variant={*/}
-                                {/*                document.confidenceScore >= 80*/}
-                                {/*                    ? "default"*/}
-                                {/*                    : document.confidenceScore >= 60*/}
-                                {/*                        ? "secondary"*/}
-                                {/*                        : "destructive"*/}
-                                {/*            }*/}
-                                {/*            className="gap-1"*/}
-                                {/*        >*/}
-                                {/*            <CheckCircle2 className="w-3 h-3" />*/}
-                                {/*            {document.confidenceScore}% Confidence*/}
-                                {/*        </Badge>*/}
-                                {/*    )}*/}
+                                {/* {document.confidenceScore && (*/}
+                                {/* <Badge*/}
+                                {/* variant={*/}
+                                {/* document.confidenceScore >= 80*/}
+                                {/* ? "default"*/}
+                                {/* : document.confidenceScore >= 60*/}
+                                {/* ? "secondary"*/}
+                                {/* : "destructive"*/}
+                                {/* }*/}
+                                {/* className="gap-1"*/}
+                                {/* >*/}
+                                {/* <CheckCircle2 className="w-3 h-3" />*/}
+                                {/* {document.confidenceScore}% Confidence*/}
+                                {/* </Badge>*/}
+                                {/* )}*/}
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                                 <div className="flex items-center gap-1">
@@ -1061,18 +1017,18 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </div>
                         <div className="flex items-center gap-1 flex-wrap">
                             {/*<Select value={selectedLanguage} onValueChange={handleLanguageChange}>*/}
-                            {/*    <SelectTrigger className="w-[120px]">*/}
-                            {/*        <Languages className="w-3 h-3 mr-1" />*/}
-                            {/*        <SelectValue />*/}
-                            {/*    </SelectTrigger>*/}
-                            {/*    <SelectContent>*/}
-                            {/*        <SelectItem value="en">English</SelectItem>*/}
-                            {/*        <SelectItem value="hi">?????</SelectItem>*/}
-                            {/*        <SelectItem value="te">??????</SelectItem>*/}
-                            {/*        <SelectItem value="kn">?????</SelectItem>*/}
-                            {/*        <SelectItem value="ta">?????</SelectItem>*/}
-                            {/*        <SelectItem value="bn">?????</SelectItem>*/}
-                            {/*    </SelectContent>*/}
+                            {/* <SelectTrigger className="w-[120px]">*/}
+                            {/* <Languages className="w-3 h-3 mr-1" />*/}
+                            {/* <SelectValue />*/}
+                            {/* </SelectTrigger>*/}
+                            {/* <SelectContent>*/}
+                            {/* <SelectItem value="en">English</SelectItem>*/}
+                            {/* <SelectItem value="hi">?????</SelectItem>*/}
+                            {/* <SelectItem value="te">??????</SelectItem>*/}
+                            {/* <SelectItem value="kn">?????</SelectItem>*/}
+                            {/* <SelectItem value="ta">?????</SelectItem>*/}
+                            {/* <SelectItem value="bn">?????</SelectItem>*/}
+                            {/* </SelectContent>*/}
                             {/*</Select>*/}
                             <Button variant="outline" size="sm" onClick={handleReadAloud} disabled={!displayRecommendations}>
                                 {isSpeaking ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
@@ -1172,7 +1128,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     </div>
                                     <h3 className="font-semibold text-foreground">Healthcare Provider</h3>
                                 </div>
-
                                 {/* Content */}
                                 <div className="space-y-2">
                                     {/* Hospital */}
@@ -1184,7 +1139,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </p>
                                         </div>
                                     )}
-
                                     {/* Department */}
                                     {structuredData?.providerInfo?.department && (
                                         <div>
@@ -1194,12 +1148,10 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </p>
                                         </div>
                                     )}
-
                                     {/* Doctors (one by one) */}
                                     {structuredData?.providerInfo?.doctorName && (
                                         <div>
                                             <p className="text-xs text-muted-foreground">Doctor(s)</p>
-
                                             <div className="space-y-1">
                                                 {splitDoctors(structuredData.providerInfo.doctorName).map(
                                                     (doctor, index) => (
@@ -1214,14 +1166,12 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </div>
                                         </div>
                                     )}
-
                                     {/* Additional Hospital Details */}
                                     {categorizedFields.hospital.length > 0 && (
                                         <div className="space-y-2 mt-3 pt-3 border-t border-border/50">
                                             <p className="text-xs font-semibold text-muted-foreground">
                                                 Additional Details
                                             </p>
-
                                             {categorizedFields.hospital.map((field, index) => (
                                                 <div key={index} className="space-y-1">
                                                     <p className="text-xs text-muted-foreground">
@@ -1240,45 +1190,45 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                     </div>
                     {/* Document Summary */}
                     {/*{structuredData?.documentSummary && (*/}
-                    {/*    <Card className="border border-border/50">*/}
-                    {/*        <div className="p-4 space-y-2">*/}
-                    {/*            <div className="flex items-center gap-1">*/}
-                    {/*                <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">*/}
-                    {/*                    <FileText className="w-3 h-3 text-primary" />*/}
-                    {/*                </div>*/}
-                    {/*                <h3 className="font-semibold text-foreground">Document Summary</h3>*/}
-                    {/*            </div>*/}
-                    {/*            <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">*/}
-                    {/*                {structuredData.documentSummary}*/}
-                    {/*            </p>*/}
-                    {/*        </div>*/}
-                    {/*    </Card>*/}
+                    {/* <Card className="border border-border/50">*/}
+                    {/* <div className="p-4 space-y-2">*/}
+                    {/* <div className="flex items-center gap-1">*/}
+                    {/* <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">*/}
+                    {/* <FileText className="w-3 h-3 text-primary" />*/}
+                    {/* </div>*/}
+                    {/* <h3 className="font-semibold text-foreground">Document Summary</h3>*/}
+                    {/* </div>*/}
+                    {/* <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">*/}
+                    {/* {structuredData.documentSummary}*/}
+                    {/* </p>*/}
+                    {/* </div>*/}
+                    {/* </Card>*/}
                     {/*)}*/}
                     {/* Bind identifiers and dates to overview as they are general */}
                     {/*{categorizedFields.identifiers.length > 0 && (*/}
-                    {/*    <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">*/}
-                    {/*        <div className="p-4 space-y-4">*/}
-                    {/*            <div className="flex items-center gap-2">*/}
-                    {/*                <div className="p-1.5 rounded-md bg-indigo-500/10">*/}
-                    {/*                    <Hash className="w-4 h-4 text-indigo-600" />*/}
-                    {/*                </div>*/}
-                    {/*                <div className="flex-1">*/}
-                    {/*                    <h3 className="text-base font-semibold text-foreground">Medical Record Identifiers</h3>*/}
-                    {/*                    <p className="text-xs text-muted-foreground mt-1">Patient and admission identification numbers</p>*/}
-                    {/*                </div>*/}
-                    {/*            </div>*/}
-                    {/*            <div className="grid gap-3 sm:grid-cols-2">*/}
-                    {/*                {categorizedFields.identifiers.map((field, index) => (*/}
-                    {/*                    <div key={index} className="p-3 rounded-md bg-background border border-border/50 space-y-1">*/}
-                    {/*                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{field.label}</p>*/}
-                    {/*                        <p className="text-foreground leading-relaxed text-pretty whitespace-pre-wrap">*/}
-                    {/*                            {renderFieldValue(field.value)}*/}
-                    {/*                        </p>*/}
-                    {/*                    </div>*/}
-                    {/*                ))}*/}
-                    {/*            </div>*/}
-                    {/*        </div>*/}
-                    {/*    </Card>*/}
+                    {/* <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">*/}
+                    {/* <div className="p-4 space-y-4">*/}
+                    {/* <div className="flex items-center gap-2">*/}
+                    {/* <div className="p-1.5 rounded-md bg-indigo-500/10">*/}
+                    {/* <Hash className="w-4 h-4 text-indigo-600" />*/}
+                    {/* </div>*/}
+                    {/* <div className="flex-1">*/}
+                    {/* <h3 className="text-base font-semibold text-foreground">Medical Record Identifiers</h3>*/}
+                    {/* <p className="text-xs text-muted-foreground mt-1">Patient and admission identification numbers</p>*/}
+                    {/* </div>*/}
+                    {/* </div>*/}
+                    {/* <div className="grid gap-3 sm:grid-cols-2">*/}
+                    {/* {categorizedFields.identifiers.map((field, index) => (*/}
+                    {/* <div key={index} className="p-3 rounded-md bg-background border border-border/50 space-y-1">*/}
+                    {/* <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{field.label}</p>*/}
+                    {/* <p className="text-foreground leading-relaxed text-pretty whitespace-pre-wrap">*/}
+                    {/* {renderFieldValue(field.value)}*/}
+                    {/* </p>*/}
+                    {/* </div>*/}
+                    {/* ))}*/}
+                    {/* </div>*/}
+                    {/* </div>*/}
+                    {/* </Card>*/}
                     {/*)}*/}
                     {categorizedFields.dates.length > 0 && (
                         <Card className="border border-cyan-500/20 bg-cyan-500/5 shadow-sm">
@@ -1377,53 +1327,53 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                     )}
                     {/* Lab Results */}
                     {/*{structuredData?.clinicalData?.labResults && structuredData.clinicalData.labResults.length > 0 && (*/}
-                    {/*    <Card className="border border-border/50">*/}
-                    {/*        <div className="p-4 space-y-3">*/}
-                    {/*            <div className="flex items-center gap-1">*/}
-                    {/*                <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center">*/}
-                    {/*                    <TestTube className="w-3 h-3 text-accent" />*/}
-                    {/*                </div>*/}
-                    {/*                <h3 className="font-semibold text-foreground">Lab Results</h3>*/}
-                    {/*            </div>*/}
-                    {/*            <div className="space-y-1">*/}
-                    {/*                {structuredData.clinicalData.labResults.map((result: any, idx: number) => (*/}
-                    {/*                    <div key={idx} className="p-2 bg-muted/30 rounded-md border border-border/30">*/}
-                    {/*                        <div className="flex items-center justify-between">*/}
-                    {/*                            <p className="text-sm font-semibold text-foreground">{result.test}</p>*/}
-                    {/*                            {result.status && (*/}
-                    {/*                                <Badge*/}
-                    {/*                                    variant={*/}
-                    {/*                                        result.status === "Normal"*/}
-                    {/*                                            ? "default"*/}
-                    {/*                                            : result.status === "High" || result.status === "Low"*/}
-                    {/*                                                ? "secondary"*/}
-                    {/*                                                : "destructive"*/}
-                    {/*                                    }*/}
-                    {/*                                >*/}
-                    {/*                                    {result.status}*/}
-                    {/*                                </Badge>*/}
-                    {/*                            )}*/}
-                    {/*                        </div>*/}
-                    {/*                        <div className="mt-1 grid grid-cols-2 gap-1 text-xs">*/}
-                    {/*                            <div>*/}
-                    {/*                                <span className="text-muted-foreground">Value:</span>*/}
-                    {/*                                <p className="font-medium text-foreground">*/}
-                    {/*                                    {result.measuredValue} {result.unit}*/}
-                    {/*                                </p>*/}
-                    {/*                            </div>*/}
-                    {/*                            {result.referenceRange && (*/}
-                    {/*                                <div>*/}
-                    {/*                                    <span className="text-muted-foreground">Reference:</span>*/}
-                    {/*                                    <p className="font-medium text-foreground">{result.referenceRange}</p>*/}
-                    {/*                                </div>*/}
-                    {/*                            )}*/}
-                    {/*                        </div>*/}
-                    {/*                        {result.notes && <p className="mt-1 text-xs text-muted-foreground italic">{result.notes}</p>}*/}
-                    {/*                    </div>*/}
-                    {/*                ))}*/}
-                    {/*            </div>*/}
-                    {/*        </div>*/}
-                    {/*    </Card>*/}
+                    {/* <Card className="border border-border/50">*/}
+                    {/* <div className="p-4 space-y-3">*/}
+                    {/* <div className="flex items-center gap-1">*/}
+                    {/* <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center">*/}
+                    {/* <TestTube className="w-3 h-3 text-accent" />*/}
+                    {/* </div>*/}
+                    {/* <h3 className="font-semibold text-foreground">Lab Results</h3>*/}
+                    {/* </div>*/}
+                    {/* <div className="space-y-1">*/}
+                    {/* {structuredData.clinicalData.labResults.map((result: any, idx: number) => (*/}
+                    {/* <div key={idx} className="p-2 bg-muted/30 rounded-md border border-border/30">*/}
+                    {/* <div className="flex items-center justify-between">*/}
+                    {/* <p className="text-sm font-semibold text-foreground">{result.test}</p>*/}
+                    {/* {result.status && (*/}
+                    {/* <Badge*/}
+                    {/* variant={*/}
+                    {/* result.status === "Normal"*/}
+                    {/* ? "default"*/}
+                    {/* : result.status === "High" || result.status === "Low"*/}
+                    {/* ? "secondary"*/}
+                    {/* : "destructive"*/}
+                    {/* }*/}
+                    {/* >*/}
+                    {/* {result.status}*/}
+                    {/* </Badge>*/}
+                    {/* )}*/}
+                    {/* </div>*/}
+                    {/* <div className="mt-1 grid grid-cols-2 gap-1 text-xs">*/}
+                    {/* <div>*/}
+                    {/* <span className="text-muted-foreground">Value:</span>*/}
+                    {/* <p className="font-medium text-foreground">*/}
+                    {/* {result.measuredValue} {result.unit}*/}
+                    {/* </p>*/}
+                    {/* </div>*/}
+                    {/* {result.referenceRange && (*/}
+                    {/* <div>*/}
+                    {/* <span className="text-muted-foreground">Reference:</span>*/}
+                    {/* <p className="font-medium text-foreground">{result.referenceRange}</p>*/}
+                    {/* </div>*/}
+                    {/* )}*/}
+                    {/* </div>*/}
+                    {/* {result.notes && <p className="mt-1 text-xs text-muted-foreground italic">{result.notes}</p>}*/}
+                    {/* </div>*/}
+                    {/* ))}*/}
+                    {/* </div>*/}
+                    {/* </div>*/}
+                    {/* </Card>*/}
                     {/*)}*/}
                     {/* Vital Signs */}
                     {structuredData?.clinicalData?.vitalSigns &&
@@ -1470,9 +1420,16 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             className="flex items-start gap-3 p-3 rounded-md bg-background border border-blue-500/20 hover:border-blue-500/40 transition-colors"
                                         >
                                             <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                                            <p className="text-sm text-foreground leading-relaxed">
-                                                {typeof procedure === "string" ? procedure : procedure.name || JSON.stringify(procedure)}
-                                            </p>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium text-foreground">
+                                                    {procedure.procedure_name || procedure.name || (typeof procedure === "string" ? procedure : JSON.stringify(procedure))}
+                                                </p>
+                                                {procedure.date && (
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        Date: {procedure.date}
+                                                    </p>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -1519,7 +1476,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                                             </p>
                                                                         </div>
                                                                     )}
-
                                                                     {/* RESULT */}
                                                                     {test.result && (
                                                                         <div className="space-y-1">
@@ -1574,7 +1530,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                         <p className="text-xs text-muted-foreground mt-1">Identity verification and image matching results</p>
                                     </div>
                                 </div>
-
                                 {/* Match Result */}
                                 <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                     <div className="flex items-center gap-2">
@@ -1596,7 +1551,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                         </div>
                                     </div>
                                 </div>
-
                                 {/* Confidence Level */}
                                 {structuredData.photoComparison.confidence && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
@@ -1626,7 +1580,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                         </div>
                                     </div>
                                 )}
-
                                 {/* Reason/Details */}
                                 {structuredData.photoComparison.reason && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
@@ -1636,7 +1589,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                         </p>
                                     </div>
                                 )}
-
                                 {/* Images Found */}
                                 {structuredData.photoComparison.images_found && Array.isArray(structuredData.photoComparison.images_found) && structuredData.photoComparison.images_found.length > 0 && (
                                     <div className="space-y-2">
@@ -1978,7 +1930,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             if (answerLower === "no") return "secondary"
                                             return "outline"
                                         }
-
                                         return (
                                             <div
                                                 key={index}
@@ -2100,14 +2051,14 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             <div className="flex flex-wrap gap-2">
                 {/* Use router.push */}
                 {/*<Button onClick={() => router.push("/")} variant="outline" className="gap-1 bg-transparent">*/}
-                {/*    <ArrowLeft className="w-3 h-3" />*/}
-                {/*    <span className="hidden sm:inline">Upload Another</span>*/}
+                {/* <ArrowLeft className="w-3 h-3" />*/}
+                {/* <span className="hidden sm:inline">Upload Another</span>*/}
                 {/*</Button>*/}
                 {/*<Link href="/search">*/}
-                {/*    <Button variant="outline" className="gap-1 bg-transparent">*/}
-                {/*        <Search className="w-3 h-3" />*/}
-                {/*        <span className="hidden sm:inline">Search Records</span>*/}
-                {/*    </Button>*/}
+                {/* <Button variant="outline" className="gap-1 bg-transparent">*/}
+                {/* <Search className="w-3 h-3" />*/}
+                {/* <span className="hidden sm:inline">Search Records</span>*/}
+                {/* </Button>*/}
                 {/*</Link>*/}
                 {/* Optional chaining for fileUrl */}
                 {document?.fileUrl && (
