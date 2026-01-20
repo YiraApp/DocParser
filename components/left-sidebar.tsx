@@ -1,7 +1,7 @@
 ﻿// Modified LeftSidebar component
 "use client"
 import type React from "react"
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Upload, FileText, Loader2, CheckCircle2, Zap, Clock, ChevronRight, AlertCircle, Search, X, ChevronLeft } from "lucide-react"
@@ -13,13 +13,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+
 interface LeftSidebarProps {
     onUploadSuccess: (document: any) => void
     onHistorySelect?: (document: any) => void
-    onHistoryClickStart?: (docId: string) => void // New prop for starting history click
+    onHistoryClickStart?: (docId: string) => void
     processingDocumentId?: string
     selectedDocumentId?: string
 }
+
 interface HistoryDocument {
     id: string
     job_id?: string
@@ -28,7 +30,9 @@ interface HistoryDocument {
     structured_data: any
     user_email?: string
     user_name?: string
+    status?: string
 }
+
 interface PaginationInfo {
     page: number
     limit: number
@@ -37,6 +41,13 @@ interface PaginationInfo {
     hasNextPage: boolean
     hasPrevPage: boolean
 }
+
+interface PollingDocument {
+    docId: string
+    pollCount: number
+    intervalId: NodeJS.Timeout
+}
+
 export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickStart, processingDocumentId, selectedDocumentId }: LeftSidebarProps) {
     const [file, setFile] = useState<File | null>(null)
     const [isDragging, setIsDragging] = useState(false)
@@ -50,17 +61,39 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     const [filterType, setFilterType] = useState<"name" | "email" | "user">("name")
     const [currentPage, setCurrentPage] = useState(1)
     const [pagination, setPagination] = useState<PaginationInfo | null>(null)
+    const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
+    const [currentlyOpenedDocId, setCurrentlyOpenedDocId] = useState<string | null>(null)
     const { user, incrementUploadCount, isAdmin } = useAuth()
     const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
+    const currentPageRef = useRef(1)
+    const isFetchingRef = useRef(false)
+    const documentToOpenRef = useRef<string | null>(null)
+    const openedDocumentRef = useRef<Set<string>>(new Set())
+    const pollingDocumentsRef = useRef<Map<string, PollingDocument>>(new Map())
+
     // Fetch documents with pagination
-    const fetchDocuments = async (page: number = 1) => {
+    const fetchDocuments = useCallback(async (page: number = 1, skipLoading: boolean = false) => {
         if (!user) return
-        setIsLoadingHistory(true)
+
+        // Prevent multiple simultaneous fetches
+        if (isFetchingRef.current) {
+            console.log("[SIDEBAR] Already fetching, skipping duplicate request")
+            return
+        }
+
+        console.log("[SIDEBAR] Fetching documents for page:", page)
+
+        if (!skipLoading) {
+            setIsLoadingHistory(true)
+        }
+        isFetchingRef.current = true
+
         try {
             const params = new URLSearchParams({
                 page: page.toString(),
                 limit: "5",
             })
+
             // Only add filters for admins
             if (isAdmin) {
                 if (filterQuery.trim()) {
@@ -73,36 +106,48 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                     }
                 }
             }
+
             const response = await fetch(`/api/recent-documents?${params}`, {
                 credentials: "include",
             })
+
             if (!response.ok) {
                 console.error("[SIDEBAR] Failed to fetch documents")
-                setIsLoadingHistory(false)
                 return
             }
+
             const data = await response.json()
+            console.log("[SIDEBAR] Documents fetched successfully:", data.documents?.length || 0)
+
             setHistory(data.documents || [])
             setPagination(data.pagination)
             setCurrentPage(page)
+            currentPageRef.current = page
+
+            // If there's a document to open and we haven't opened it yet, open it now
+            if (documentToOpenRef.current && !openedDocumentRef.current.has(documentToOpenRef.current)) {
+                const docToOpen = data.documents?.find((doc: { id: string | null }) => doc.id === documentToOpenRef.current)
+                if (docToOpen) {
+                    console.log("[SIDEBAR] Opening document from fetched list:", documentToOpenRef.current)
+                    openedDocumentRef.current.add(documentToOpenRef.current)
+                    await openDocument(docToOpen)
+                    // Update currently opened document ID
+                    setCurrentlyOpenedDocId(documentToOpenRef.current)
+                    documentToOpenRef.current = null
+                }
+            }
         } catch (err) {
             console.error("[SIDEBAR] Fetch error:", err)
         } finally {
-            setIsLoadingHistory(false)
+            isFetchingRef.current = false
+            if (!skipLoading) {
+                setIsLoadingHistory(false)
+            }
         }
-    }
-    // Fetch on component mount
-    useEffect(() => {
-        fetchDocuments(1)
-    }, [user])
-    // Fetch when filter changes (for admins only)
-    useEffect(() => {
-        if (isAdmin) {
-            fetchDocuments(1)
-        }
-    }, [filterQuery, filterType, isAdmin])
-    const handleHistoryClick = async (doc: HistoryDocument) => {
-        onHistoryClickStart?.(doc.id) // Call start callback before fetch
+    }, [user, isAdmin, filterQuery, filterType])
+
+    // Open document in main panel
+    const openDocument = useCallback(async (doc: HistoryDocument) => {
         if (!onHistorySelect) return
         try {
             const response = await fetch(`/api/parse-document?id=${doc.id}`)
@@ -125,6 +170,8 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 jobId: fullData.jobId || doc.job_id,
             }
             onHistorySelect(formattedData)
+            // Update currently opened document ID when successfully opened
+            setCurrentlyOpenedDocId(doc.id)
         } catch (error) {
             console.error("[LeftSidebar] Error fetching history document:", error)
             onHistorySelect({
@@ -140,8 +187,137 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 healthRecommendations: undefined,
                 jobId: doc.job_id,
             })
+            // Update currently opened document ID even on error
+            setCurrentlyOpenedDocId(doc.id)
         }
-    }
+    }, [onHistorySelect])
+
+    // Start polling for document status updates
+    const startPolling = useCallback((docId: string) => {
+        console.log("[SIDEBAR] Starting polling for document:", docId)
+
+        setProcessingIds(prev => new Set(prev).add(docId))
+
+        let pollCount = 0
+        const maxPolls = 300 // Stop after 10 minutes (300 * 2 seconds)
+
+        const intervalId = setInterval(async () => {
+            pollCount++
+
+            // Stop polling after max attempts
+            if (pollCount > maxPolls) {
+                console.log(`[SIDEBAR] Polling stopped for ${docId} - max attempts reached`)
+                clearInterval(intervalId)
+                pollingDocumentsRef.current.delete(docId)
+
+                setProcessingIds(prev => {
+                    const updated = new Set(prev)
+                    updated.delete(docId)
+                    return updated
+                })
+                return
+            }
+
+            try {
+                const response = await fetch(`/api/webhook?job_id=${docId}`, {
+                    credentials: "include",
+                })
+
+                if (!response.ok) {
+                    console.log(`[SIDEBAR] Webhook check failed for ${docId} - status: ${response.status}`)
+                    return
+                }
+
+                const data = await response.json()
+                const webhook = data.webhook
+
+                if (webhook && webhook.status && webhook.status !== 'pending') {
+                    console.log(`[SIDEBAR] Document ${docId} completed with status: ${webhook.status}`)
+
+                    // Stop polling for this document
+                    clearInterval(intervalId)
+                    pollingDocumentsRef.current.delete(docId)
+
+                    // Remove from processing set
+                    setProcessingIds(prev => {
+                        const updated = new Set(prev)
+                        updated.delete(docId)
+                        return updated
+                    })
+
+                    // Set the document to open when fetch completes
+                    documentToOpenRef.current = docId
+
+                    // Fetch documents to update the list and trigger opening
+                    await fetchDocuments(currentPageRef.current, true)
+                }
+            } catch (error) {
+                console.error("[SIDEBAR] Polling error:", error)
+            }
+        }, 2000) // Poll every 2 seconds
+
+        // Store the polling info
+        pollingDocumentsRef.current.set(docId, {
+            docId,
+            pollCount,
+            intervalId,
+        })
+    }, [fetchDocuments])
+
+    // Stop polling when component unmounts
+    useEffect(() => {
+        return () => {
+            console.log("[SIDEBAR] Clearing all polling intervals on unmount")
+            pollingDocumentsRef.current.forEach(({ intervalId }) => {
+                clearInterval(intervalId)
+            })
+            pollingDocumentsRef.current.clear()
+        }
+    }, [])
+
+    // Fetch on component mount - only once
+    useEffect(() => {
+        if (!user) return
+        console.log("[SIDEBAR] Component mounted, fetching initial documents")
+        fetchDocuments(1)
+        openedDocumentRef.current.clear()
+    }, [user])
+
+    // Fetch when filter changes (for admins only) - debounce to prevent multiple calls
+    useEffect(() => {
+        if (!isAdmin) return
+
+        const timer = setTimeout(() => {
+            console.log("[SIDEBAR] Filter changed, fetching documents")
+            fetchDocuments(1)
+        }, 500)
+
+        return () => clearTimeout(timer)
+    }, [filterQuery, filterType, isAdmin, fetchDocuments])
+
+    // Update current opened document when selectedDocumentId changes from parent
+    useEffect(() => {
+        if (selectedDocumentId) {
+            console.log("[SIDEBAR] Selected document ID changed from parent:", selectedDocumentId)
+            setCurrentlyOpenedDocId(selectedDocumentId)
+        }
+    }, [selectedDocumentId])
+
+    const handleHistoryClick = useCallback(async (doc: HistoryDocument) => {
+        // Determine if this document is still processing
+        const isProcessing = processingDocumentId === doc.id || doc.status === 'pending' || processingIds.has(doc.id)
+
+        // Prevent clicking on documents that are still processing
+        if (isProcessing) {
+            console.log("[SIDEBAR] Document is still processing, click prevented:", doc.id)
+            return
+        }
+
+        onHistoryClickStart?.(doc.id)
+        openedDocumentRef.current.add(doc.id)
+        await openDocument(doc)
+    }, [onHistoryClickStart, openDocument, processingDocumentId, processingIds])
+
     const formatDate = (dateString: string) => {
         const date = new Date(dateString)
         const now = new Date()
@@ -154,14 +330,17 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         if (days < 7) return `${days}d ago`
         return date.toLocaleDateString()
     }
+
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault()
         setIsDragging(true)
     }, [])
+
     const handleDragLeave = useCallback((e: React.DragEvent) => {
         e.preventDefault()
         setIsDragging(false)
     }, [])
+
     const handleDrop = useCallback(
         (e: React.DragEvent) => {
             e.preventDefault()
@@ -177,6 +356,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         },
         [hasReachedLimit],
     )
+
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (hasReachedLimit) {
             setShowLimitDialog(true)
@@ -194,6 +374,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             setFile(selectedFile)
         }
     }
+
     const handleUpload = async () => {
         if (hasReachedLimit) {
             setShowLimitDialog(true)
@@ -238,6 +419,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             setProgressMessage("Complete!")
             setUploadProgress(100)
             await new Promise((resolve) => setTimeout(resolve, 500))
+
             // Create processing document object to show spinner on main page
             const processingDocument = {
                 id: data.id,
@@ -255,11 +437,18 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 reportId: data.report_id,
                 status: "processing",
             }
+
             incrementUploadCount()
             setFile(null)
             setUploadProgress(0)
             setProgressMessage("")
-            fetchDocuments(1)
+
+            // Fetch documents (with skip loading for smoother UX)
+            await fetchDocuments(currentPageRef.current, true)
+
+            // Start polling for this document (doesn't interfere with previous polling)
+            startPolling(data.id)
+
             // Pass processing document to parent - will show spinner
             onUploadSuccess(processingDocument)
         } catch (error) {
@@ -271,6 +460,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             setIsUploading(false)
         }
     }
+
     return (
         <>
             <aside className="w-80 h-[calc(100vh-64px)] overflow-hidden bg-gradient-to-b from-background to-muted/10 border-r border-border/40 flex flex-col z-10">
@@ -448,52 +638,60 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                 </Card>
                             ) : history.length > 0 ? (
                                 <div className="space-y-1">
-                                    {history.map((doc) => (
-                                        <Card
-                                            key={doc.id}
-                                            className={cn(
-                                                "border hover:border-primary/50 hover:bg-accent/5 transition-all py-2 cursor-pointer group min-h-[40px]",
-                                                selectedDocumentId === doc.id ? "border-primary bg-primary/5" : "border-border/50"
-                                            )}
-                                            onClick={() => handleHistoryClick(doc)}
-                                        >
-                                            <div className="p-2 flex items-center gap-2">
-                                                <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
-                                                    {processingDocumentId === doc.id ? (
-                                                        <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
-                                                    ) : (
-                                                        <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
-                                                    )}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
-                                                        {doc.file_name}
-                                                    </p>
-                                                    {isAdmin && doc.user_name && (
-                                                        <p className="text-[10px] text-muted-foreground truncate">
-                                                            {doc.user_name}
-                                                        </p>
-                                                    )}
-                                                    {isAdmin && doc.user_email && (
-                                                        <p className="text-[10px] text-muted-foreground truncate">
-                                                            {doc.user_email}
-                                                        </p>
-                                                    )}
-                                                    <div className="flex items-center gap-1">
-                                                        <p className="text-[10px] text-muted-foreground">
-                                                            {formatDate(doc.created_at)}
-                                                        </p>
-                                                        {processingDocumentId === doc.id && (
-                                                            <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 border-0">
-                                                                In Progress
-                                                            </Badge>
+                                    {history.map((doc) => {
+                                        // Determine if this document is still processing
+                                        const isProcessing = processingDocumentId === doc.id || doc.status === 'pending' || processingIds.has(doc.id)
+                                        // Use currentlyOpenedDocId for highlighting the document currently displayed in main panel
+                                        const isCurrentlyOpen = currentlyOpenedDocId === doc.id
+
+                                        return (
+                                            <Card
+                                                key={doc.id}
+                                                className={cn(
+                                                    "border hover:border-primary/50 hover:bg-accent/5 transition-all py-2 group min-h-[40px]",
+                                                    isProcessing ? "cursor-not-allowed opacity-75" : "cursor-pointer",
+                                                    isCurrentlyOpen ? "border-primary bg-primary/5" : "border-border/50"
+                                                )}
+                                                onClick={() => handleHistoryClick(doc)}
+                                            >
+                                                <div className="p-2 flex items-center gap-2">
+                                                    <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
+                                                        {isProcessing ? (
+                                                            <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
+                                                        ) : (
+                                                            <FileText className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
                                                         )}
                                                     </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
+                                                            {doc.file_name}
+                                                        </p>
+                                                        {isAdmin && doc.user_name && (
+                                                            <p className="text-[10px] text-muted-foreground truncate">
+                                                                {doc.user_name}
+                                                            </p>
+                                                        )}
+                                                        {isAdmin && doc.user_email && (
+                                                            <p className="text-[10px] text-muted-foreground truncate">
+                                                                {doc.user_email}
+                                                            </p>
+                                                        )}
+                                                        <div className="flex items-center gap-1">
+                                                            <p className="text-[10px] text-muted-foreground">
+                                                                {formatDate(doc.created_at)}
+                                                            </p>
+                                                            {isProcessing && (
+                                                                <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 border-0">
+                                                                    In Progress
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
                                                 </div>
-                                                <ChevronRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
-                                            </div>
-                                        </Card>
-                                    ))}
+                                            </Card>
+                                        )
+                                    })}
                                 </div>
                             ) : null}
                             {/* Pagination Controls */}

@@ -73,7 +73,8 @@ async function initializeDatabase() {
                             job_id: { bsonType: ['string', 'null'] },
                             report_id: { bsonType: ['string', 'null'] },
                             error_message: { bsonType: ['string', 'null'] },
-                        },
+                            // In the documents collection validator, ensure fraud_detection field exists
+                            fraud_detection: { bsonType: ['object', 'null'] },                        },
                     },
                 },
             });
@@ -103,6 +104,7 @@ async function initializeDatabase() {
                             timestamp: { bsonType: 'string' },
                             processed: { bsonType: 'bool' },
                             document_id: { bsonType: ['objectId', 'null'] },
+                            fraud_detection: { bsonType: ['object', 'null'] },
                         },
                     },
                 },

@@ -31,7 +31,7 @@ function safeStringify(value: any): string {
     return String(value)
 }
 
-function mapParsedDataToStructured(parsedData: any) {
+function mapParsedDataToStructured(parsedData: any, fraudDetection: any = null) {
     if (!parsedData) return {}
 
     const getPatientId = (patientIdField: any): string => {
@@ -92,10 +92,11 @@ function mapParsedDataToStructured(parsedData: any) {
         medicalHistoryQuestions: parsedData.medical_history_questions || [],
         // Preserve photo comparison data
         photoComparison: parsedData.photo_comparison || null,
-        // Preserve fraud detection data
-        fraudDetection: parsedData.fraud_detection || null,
+        // ✅ Explicitly use the fraud_detection parameter passed to function
+        fraudDetection: fraudDetection !== null ? fraudDetection : (parsedData.fraud_detection || null),
     }
 }
+
 function extractVitalSigns(parsedData: any) {
     const vitalSigns: Record<string, any> = {}
 
@@ -202,6 +203,8 @@ export async function POST(request: NextRequest) {
             job_id: payload.job_id,
             status: payload.status,
             has_parsed_data: !!payload.parsed_data,
+            has_fraud_detection: !!payload.fraud_detection,
+            has_fraud_detection_in_parsed: !!payload.parsed_data?.fraud_detection,
         })
 
         if (!payload.job_id) {
@@ -230,6 +233,13 @@ export async function POST(request: NextRequest) {
             console.warn("[WEBHOOK POST] ⚠️ Job record not found, using defaults")
         }
 
+        // ✅ Extract fraud_detection with explicit null check
+        const fraudDetection = payload.fraud_detection !== undefined 
+            ? payload.fraud_detection 
+            : (payload.parsed_data?.fraud_detection || null)
+
+        console.log("[WEBHOOK POST] Extracted fraud_detection:", fraudDetection)
+
         // Store in webhook_responses
         const webhookRecord = {
             job_id: payload.job_id,
@@ -242,15 +252,21 @@ export async function POST(request: NextRequest) {
             processed: false,
             document_id: null,
             parsed_data: payload.parsed_data || null,
-            fraud_detection: payload.fraud_detection || null,
+            fraud_detection: fraudDetection,
         }
 
         const webhookResult = await webhookCollection.insertOne(webhookRecord)
-        console.log("[WEBHOOK POST] ✅ Stored in webhook_responses")
+        console.log("[WEBHOOK POST] ✅ Stored in webhook_responses with fraud_detection:", !!fraudDetection)
 
         // **SAVE TO DOCUMENTS COLLECTION ONLY WHEN WEBHOOK HAS PARSED DATA (i.e., processing is complete)**
         if (payload.parsed_data && Object.keys(payload.parsed_data).length > 0) {
             console.log("[WEBHOOK POST] 💾 Saving to documents collection with user_email:", userEmail)
+
+            // ✅ Merge fraud_detection into parsed_data
+            const enrichedParsedData = {
+                ...payload.parsed_data,
+                fraud_detection: fraudDetection,
+            }
 
             const documentRecord = {
                 job_id: payload.job_id,
@@ -262,13 +278,17 @@ export async function POST(request: NextRequest) {
                 status: payload.status || "completed",
                 user_email: userEmail,
 
-                // Parsed and structured data
-                parsed_data: payload.parsed_data,
-                structured_data: mapParsedDataToStructured(payload.parsed_data),
-                fields: extractFieldsFromParsedData(payload.parsed_data),
+                // ✅ Use enriched parsed_data with fraud_detection included
+                parsed_data: enrichedParsedData,
+                // ✅ Pass fraudDetection as second parameter to mapParsedDataToStructured
+                structured_data: mapParsedDataToStructured(enrichedParsedData, fraudDetection),
+                fields: extractFieldsFromParsedData(enrichedParsedData),
+
+                // ✅ Add fraud_detection field here
+                fraud_detection: fraudDetection,
 
                 // Metadata
-                summary: buildDocumentSummary(payload.parsed_data),
+                summary: buildDocumentSummary(enrichedParsedData),
                 notes: [],
                 confidence_score: 85,
                 error_message: null,
@@ -281,6 +301,7 @@ export async function POST(request: NextRequest) {
             try {
                 const docResult = await documentsCollection.insertOne(documentRecord)
                 console.log("[WEBHOOK POST] ✅ Document saved:", docResult.insertedId, "for user:", userEmail)
+                console.log("[WEBHOOK POST] 💾 Fraud detection in structured_data:", documentRecord.structured_data.fraudDetection)
 
                 // Update webhook with document_id
                 await webhookCollection.updateOne(
@@ -301,12 +322,13 @@ export async function POST(request: NextRequest) {
                         $set: {
                             status: payload.status || "completed",
                             document_id: docResult.insertedId.toString(),
-                            parsed_data: payload.parsed_data,
+                            parsed_data: enrichedParsedData,
+                            fraud_detection: fraudDetection,
                             updated_at: new Date(),
                         }
                     }
                 )
-                console.log("[WEBHOOK POST] ✅ Job ID record updated with document_id")
+                console.log("[WEBHOOK POST] ✅ Job ID record updated with document_id and fraud_detection")
 
             } catch (docError) {
                 console.error("[WEBHOOK POST] ❌ Error saving to documents:", docError)
@@ -368,6 +390,7 @@ export async function GET(request: NextRequest) {
                     report_id: webhook.report_id,
                     status: webhook.status,
                     parsed_data: webhook.parsed_data,
+                    fraud_detection: webhook.fraud_detection || null,
                     timestamp: webhook.timestamp,
                 },
             })
@@ -387,6 +410,7 @@ export async function GET(request: NextRequest) {
                 job_id: w.job_id,
                 report_id: w.report_id,
                 status: w.status,
+                fraud_detection: w.fraud_detection || null,
                 timestamp: w.timestamp,
             })),
             count: recentWebhooks.length,

@@ -3,7 +3,7 @@ import { getDatabase } from "@/lib/db"
 import { getSessionUser } from "@/lib/auth-server"
 
 // Helper functions
-function mapParsedDataToStructured(parsedData: any) {
+function mapParsedDataToStructured(parsedData: any, fraudDetection: any = null) {
     if (!parsedData) return {}
 
     const getPatientId = (patientIdField: any): string => {
@@ -67,8 +67,8 @@ function mapParsedDataToStructured(parsedData: any) {
         medicalHistoryQuestions: parsedData.medical_history_questions || [],
         // Preserve photo comparison data
         photoComparison: parsedData.photo_comparison || null,
-        // Preserve fraud detection data
-        fraudDetection: parsedData.fraud_detection || null,
+        // ✅ FIX: Accept fraud_detection as separate parameter, not from parsedData
+        fraudDetection: fraudDetection || parsedData.fraud_detection || null,
     }
 }
 
@@ -107,15 +107,6 @@ function buildDocumentSummary(parsedData: any): string {
 function extractFieldsFromParsedData(parsedData: any) {
     const fields: Array<{ label: string; value: string }> = []
     const addedFieldLabels = new Set<string>()
-
-    // Skip patient name here since it's displayed in patientInfo.fullName
-    // if (parsedData.patient_name) {
-    //     fields.push({
-    //         label: "Patient Name",
-    //         value: safeStringify(parsedData.patient_name),
-    //     })
-    //     addedFieldLabels.add("patient name")
-    // }
 
     if (parsedData.patient_id) {
         if (typeof parsedData.patient_id === "string") {
@@ -223,6 +214,7 @@ export async function GET(request: NextRequest) {
                     document_type: "Medical Report",
                     status: webhook.status || "completed",
                     parsed_data: webhook.parsed_data,
+                    fraud_detection: webhook.fraud_detection || null,
                     created_at: webhook.received_at || new Date(),
                     confidence_score: 85,
                 }
@@ -238,7 +230,8 @@ export async function GET(request: NextRequest) {
         // **Ensure transformations are applied**
         if (doc.parsed_data && !doc.structured_data) {
             console.log("[PARSE-DOCUMENT GET] 🔄 Transforming parsed_data to structured_data")
-            doc.structured_data = mapParsedDataToStructured(doc.parsed_data)
+            // ✅ FIX: Pass fraud_detection as separate parameter to mapParsedDataToStructured
+            doc.structured_data = mapParsedDataToStructured(doc.parsed_data, doc.fraud_detection)
             doc.fields = extractFieldsFromParsedData(doc.parsed_data)
             doc.summary = buildDocumentSummary(doc.parsed_data)
         }
@@ -253,12 +246,13 @@ export async function GET(request: NextRequest) {
             medicalHistoryQuestions: doc.parsed_data?.medical_history_questions || structuredData.medicalHistoryQuestions || [],
             // Ensure photo comparison is included
             photoComparison: doc.parsed_data?.photo_comparison || structuredData.photoComparison || null,
-            // Ensure fraud detection is included
-            fraudDetection: doc.parsed_data?.fraud_detection || structuredData.fraudDetection || null,
+            // Ensure fraud detection is included - fallback chain
+            fraudDetection: doc.parsed_data?.fraud_detection || doc.fraud_detection || structuredData.fraudDetection || null,
             // Ensure all raw parsed data is accessible
             rawParsedData: doc.parsed_data || {},
         }
 
+        // ✅ Fix: Use the comprehensive fraud detection from completeStructuredData
         const formattedData = {
             id: doc.job_id || doc._id?.toString() || id,
             fileName: doc.file_name || "Untitled Document",
@@ -271,10 +265,12 @@ export async function GET(request: NextRequest) {
             structuredData: completeStructuredData,
             confidenceScore: doc.confidence_score || undefined,
             healthRecommendations: doc.health_recommendations || undefined,
+            fraudDetection: completeStructuredData.fraudDetection,
         }
 
         console.log("[PARSE-DOCUMENT GET] ✅ Returning formatted data")
         console.log("[PARSE-DOCUMENT GET] Medical History Questions Count:", formattedData.structuredData.medicalHistoryQuestions.length)
+        console.log("[PARSE-DOCUMENT GET] Fraud Detection:", !!formattedData.fraudDetection)
         return NextResponse.json(formattedData)
     } catch (error) {
         console.error("[PARSE-DOCUMENT GET] ❌ Error:", error)
@@ -330,8 +326,12 @@ export async function POST(request: NextRequest) {
 
                 // Parsed and structured data
                 parsed_data: webhook.parsed_data,
-                structured_data: mapParsedDataToStructured(webhook.parsed_data),
+                // ✅ FIX: Pass fraud_detection as separate parameter
+                structured_data: mapParsedDataToStructured(webhook.parsed_data, webhook.fraud_detection),
                 fields: extractFieldsFromParsedData(webhook.parsed_data),
+
+                // Fraud detection data
+                fraud_detection: webhook.fraud_detection || null,
 
                 // Metadata
                 summary: buildDocumentSummary(webhook.parsed_data),
@@ -347,6 +347,7 @@ export async function POST(request: NextRequest) {
             try {
                 await documentsCollection.insertOne(documentRecord)
                 console.log(`[MIGRATE] ✅ Migrated ${webhook.job_id}`)
+                console.log(`[MIGRATE] 💾 Fraud Detection preserved: ${webhook.fraud_detection ? "Yes" : "No"}`)
                 migratedCount++
             } catch (err) {
                 console.error(`[MIGRATE] ❌ Error migrating ${webhook.job_id}:`, err)

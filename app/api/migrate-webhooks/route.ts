@@ -2,7 +2,7 @@
 import { getDatabase } from "@/lib/db"
 
 // Helper functions (same as webhook)
-function mapParsedDataToStructured(parsedData: any) {
+function mapParsedDataToStructured(parsedData: any, fraudDetection: any = null) {
     if (!parsedData) return {}
 
     const getPatientId = (patientIdField: any): string => {
@@ -60,6 +60,7 @@ function mapParsedDataToStructured(parsedData: any) {
             reportDate: parsedData.encounter_date || null,
         },
         documentSummary: buildDocumentSummary(parsedData),
+        fraudDetection: fraudDetection || parsedData.fraud_detection || null,
     }
 }
 
@@ -176,12 +177,23 @@ export async function GET(request: NextRequest) {
             parsed_data: { $exists: true, $ne: null },
             processed: { $ne: true }
         })
+        
+        // ✅ NEW: Check webhooks with fraud_detection
+        const webhooksWithFraudDetection = await webhookCollection.countDocuments({
+            fraud_detection: { $exists: true, $ne: null }
+        })
+        
+        const documentsWithFraudDetection = await documentsCollection.countDocuments({
+            fraud_detection: { $exists: true, $ne: null }
+        })
 
         console.log("[MIGRATE-WEBHOOKS GET] Status:", {
             totalWebhooks,
             totalDocuments,
             webhooksWithParsedData,
             webhooksNotMigrated,
+            webhooksWithFraudDetection,
+            documentsWithFraudDetection,
         })
 
         return NextResponse.json({
@@ -189,10 +201,12 @@ export async function GET(request: NextRequest) {
             webhooks: {
                 total: totalWebhooks,
                 withParsedData: webhooksWithParsedData,
+                withFraudDetection: webhooksWithFraudDetection,
                 notMigrated: webhooksNotMigrated,
             },
             documents: {
                 total: totalDocuments,
+                withFraudDetection: documentsWithFraudDetection,
             },
             readyToMigrate: webhooksNotMigrated,
         })
@@ -226,6 +240,7 @@ export async function POST(request: NextRequest) {
 
         let migratedCount = 0
         let skippedCount = 0
+        let fraudDetectionMigratedCount = 0
         const errors: any[] = []
 
         for (const webhook of webhooksToMigrate) {
@@ -240,6 +255,9 @@ export async function POST(request: NextRequest) {
                     continue
                 }
 
+                // ✅ CRITICAL FIX: Properly extract fraud_detection
+                const fraudDetection = webhook.fraud_detection || webhook.parsed_data?.fraud_detection || null
+
                 // Create document from webhook
                 const documentRecord = {
                     job_id: webhook.job_id,
@@ -253,8 +271,11 @@ export async function POST(request: NextRequest) {
 
                     // Parsed and structured data
                     parsed_data: webhook.parsed_data,
-                    structured_data: mapParsedDataToStructured(webhook.parsed_data),
+                    structured_data: mapParsedDataToStructured(webhook.parsed_data, fraudDetection),
                     fields: extractFieldsFromParsedData(webhook.parsed_data),
+
+                    // ✅ CRITICAL FIX: Always add fraud_detection field
+                    fraud_detection: fraudDetection,
 
                     // Metadata
                     summary: buildDocumentSummary(webhook.parsed_data),
@@ -268,15 +289,26 @@ export async function POST(request: NextRequest) {
                 }
 
                 const result = await documentsCollection.insertOne(documentRecord)
-                console.log(`[MIGRATE-WEBHOOKS POST] ✅ Migrated ${webhook.job_id}`)
+                
+                // ✅ Log fraud detection status
+                if (fraudDetection) {
+                    console.log(`[MIGRATE-WEBHOOKS POST] ✅ Migrated ${webhook.job_id} with fraud_detection`)
+                    console.log(`[MIGRATE-WEBHOOKS POST] 📊 Fraud Detection Data:`, JSON.stringify(fraudDetection).substring(0, 150))
+                    fraudDetectionMigratedCount++
+                } else {
+                    console.log(`[MIGRATE-WEBHOOKS POST] ✅ Migrated ${webhook.job_id} (no fraud_detection)`)
+                }
+                
                 migratedCount++
 
-                // Mark webhook as processed
+                // Mark webhook as processed AFTER successful document creation
                 await webhookCollection.updateOne(
                     { _id: webhook._id },
                     {
                         $set: {
                             processed: true,
+                            document_id: result.insertedId.toString(),
+                            migrated_at: new Date(),
                         }
                     }
                 )
@@ -291,11 +323,17 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[MIGRATE-WEBHOOKS POST] ===== MIGRATION COMPLETE =====`)
+        console.log(`[MIGRATE-WEBHOOKS POST] Summary:`)
+        console.log(`  - Total migrated: ${migratedCount}`)
+        console.log(`  - With fraud_detection: ${fraudDetectionMigratedCount}`)
+        console.log(`  - Skipped: ${skippedCount}`)
+        console.log(`  - Errors: ${errors.length}`)
 
         return NextResponse.json({
             success: true,
             message: `Migration complete: ${migratedCount} migrated, ${skippedCount} skipped`,
             migratedCount,
+            fraudDetectionMigratedCount,
             skippedCount,
             errors: errors.length > 0 ? errors : undefined,
         })

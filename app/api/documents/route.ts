@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
                     structured_data: document.structured_data || {},
                     confidence_score: document.confidence_score || 85,
                     health_recommendations: document.health_recommendations || null,
+                    fraud_detection: document.fraud_detection || null,
                 }
             })
         }
@@ -64,6 +65,7 @@ export async function GET(request: NextRequest) {
                 notes: doc.notes || [],
                 structured_data: doc.structured_data || {},
                 confidence_score: doc.confidence_score || 85,
+                fraud_detection: doc.fraud_detection || null,
             }))
         })
     } catch (error) {

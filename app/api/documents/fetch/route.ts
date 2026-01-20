@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
             job_id: doc.job_id,
             has_parsed_data: !!doc.parsed_data,
             has_structured_data: !!doc.structured_data,
+            has_fraud_detection: !!doc.fraud_detection,
         })
 
         // Format response to match ParsedDocument interface
@@ -69,9 +70,10 @@ export async function GET(request: NextRequest) {
             structuredData: doc.structured_data || {},
             confidenceScore: doc.confidence_score || undefined,
             healthRecommendations: doc.health_recommendations || undefined,
+            fraudDetection: doc.fraud_detection || null,
         }
 
-        console.log("[FETCH-DOCUMENT] Returning formatted data")
+        console.log("[FETCH-DOCUMENT] Returning formatted data with fraud detection:", !!doc.fraud_detection)
 
         return NextResponse.json(formattedData)
     } catch (error) {

@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 // Add this import with the other icon imports
-import { ClipboardCheck } from "lucide-react"
+import { ClipboardCheck, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -55,6 +55,7 @@ interface ParsedDocument {
     structuredData?: any
     confidenceScore?: number
     healthRecommendations?: any
+    fraudDetection?: any
 }
 interface ResultsViewProps {
     document?: ParsedDocument | null
@@ -785,108 +786,53 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
     const handleDownload = () => {
         if (typeof document === "undefined" || !document?.structuredData) return;
         const wb = XLSX.utils.book_new();
-        // Helper to add key-value sheet
-        const addKeyValueSheet = (data: any, sheetName: string) => {
-            if (!data) return;
-            const sheetData: any[][] = [["Key", "Value"]];
-            Object.entries(data).forEach(([key, value]: [string, any]) => {
-                sheetData.push([key, typeof value === "object" ? JSON.stringify(value) : value]);
+
+        // Helper to flatten nested objects into key-value pairs
+        const flattenObject = (obj: any, prefix = ""): Array<[string, string]> => {
+            const result: Array<[string, string]> = [];
+
+            Object.entries(obj).forEach(([key, value]: [string, any]) => {
+                const fullKey = prefix ? `${prefix} - ${key}` : key;
+
+                if (value === null || value === undefined) {
+                    result.push([fullKey, "N/A"]);
+                } else if (Array.isArray(value)) {
+                    if (value.length === 0) {
+                        result.push([fullKey, "N/A"]);
+                    } else if (typeof value[0] === "object" && value[0] !== null) {
+                        // For array of objects, stringify nicely
+                        result.push([fullKey, JSON.stringify(value, null, 2)]);
+                    } else {
+                        // For simple arrays, join with comma
+                        result.push([fullKey, value.map(v => String(v)).join(", ")]);
+                    }
+                } else if (typeof value === "object" && value !== null) {
+                    // Recursively flatten nested objects (null check redundant here due to earlier check, but explicit for clarity)
+                    const flattened = flattenObject(value, fullKey);
+                    result.push(...flattened);
+                } else {
+                    result.push([fullKey, String(value)]);
+                }
             });
-            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), sheetName);
+
+            return result;
         };
-        // Helper to add table sheet
-        const addTableSheet = (dataArray: any[], sheetName: string, columns: string[]) => {
-            if (!Array.isArray(dataArray) || dataArray.length === 0) return;
-            const sheetData: any[][] = [columns];
-            dataArray.forEach((item) => {
-                sheetData.push(
-                    columns.map((col) => {
-                        const colKey = col.toLowerCase().replace(/\s/g, "");
-                        return item[colKey] || item[col] || "";
-                    }),
-                );
+        // Create Raw Data sheet from rawParsedData
+        if (document.structuredData?.rawParsedData) {
+            const rawData = flattenObject(document.structuredData.rawParsedData);
+            const sheetData: any[][] = [["Field", "Value"]];
+
+            rawData.forEach(([field, value]) => {
+                sheetData.push([field, value]);
             });
-            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), sheetName);
-        };
-        // Patient Info
-        addKeyValueSheet(document.structuredData.patientInfo, "Patient Info");
-        // Provider Info
-        addKeyValueSheet(document.structuredData.providerInfo, "Provider Info");
-        // Document Info
-        addKeyValueSheet(document.structuredData.documentInfo, "Document Info");
-        // Clinical Overview
-        addKeyValueSheet(
-            {
-                diagnosis: document.structuredData.clinicalData?.diagnosis,
-                secondaryDiagnoses: document.structuredData.clinicalData?.secondaryDiagnoses?.join(", "),
-                vitalSigns: JSON.stringify(document.structuredData.clinicalData?.vitalSigns),
-            },
-            "Clinical Overview",
-        );
-        // Medications
-        addTableSheet(document.structuredData.clinicalData?.medications, "Medications", [
-            "Name",
-            "Dosage",
-            "Frequency",
-            "Duration",
-        ]);
-        // Lab Results
-        addTableSheet(document.structuredData.clinicalData?.labResults, "Lab Results", [
-            "Test",
-            "Measured Value",
-            "Unit",
-            "Reference Range",
-            "Status",
-            "Notes",
-        ]);
-        // Procedures
-        if (document.structuredData.clinicalData?.procedures) {
-            addTableSheet(
-                document.structuredData.clinicalData.procedures.map((p: any) => ({ Procedure: typeof p === "string" ? p : p.procedure_name || p.name || JSON.stringify(p) })),
-                "Procedures",
-                ["Procedure"],
-            );
+
+            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+            ws['!cols'] = [{ wch: 35 }, { wch: 60 }];
+            XLSX.utils.book_append_sheet(wb, ws, "Raw Data");
         }
-        // Imaging Findings
-        addKeyValueSheet(document.structuredData.clinicalData?.imagingFindings, "Imaging Findings");
-        // Health Recommendations Summary
-        if (document.structuredData.healthRecommendations?.summary) {
-            addKeyValueSheet({ Summary: document.structuredData.healthRecommendations.summary }, "Rec Summary");
-        }
-        // Recommendations
-        addTableSheet(document.structuredData.healthRecommendations?.recommendations, "Recommendations", [
-            "Recommendation",
-            "Reason",
-            "Priority",
-            "Category",
-        ]);
-        // Warnings
-        addTableSheet(document.structuredData.healthRecommendations?.warnings, "Warnings", ["Warning", "Action", "Severity"]);
-        // Next Steps
-        if (document.structuredData.healthRecommendations?.nextSteps) {
-            addTableSheet(
-                document.structuredData.healthRecommendations.nextSteps.map((s: string) => ({ Step: s })),
-                "Next Steps",
-                ["Step"],
-            );
-        }
-        // Medical History
-        addTableSheet(document.structuredData.medicalHistoryQuestions, "Medical History", ["Question", "Answer"]);
-        // Photo Comparison
-        addKeyValueSheet(document.structuredData.photoComparison, "Photo Comparison");
-        // Categorized Fields
-        Object.entries(categorizedFields).forEach(([cat, fields]: [string, any]) => {
-            if (fields.length > 0) {
-                addTableSheet(fields, cat.charAt(0).toUpperCase() + cat.slice(1), ["Label", "Value"]);
-            }
-        });
-        // Document Summary
-        if (document.structuredData.summary) {
-            const summarySheet = XLSX.utils.aoa_to_sheet([[document.structuredData.summary]]);
-            XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
-        }
+
         // Write the Excel file
-        XLSX.writeFile(wb, `${document.fileName.replace(/\.[^/.]+$/, "")}_parsed.xlsx`);
+        XLSX.writeFile(wb, `${document.fileName.replace(/\.[^/.]+$/, "")}_raw_data_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
     const handleShare = async () => {
         const shareData = {
@@ -984,26 +930,14 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     <FileText className="w-3 h-3" />
                                     {structuredData?.documentInfo?.type || "Medical Document"}
                                 </Badge>
-                                {/* {document.confidenceScore && (*/}
-                                {/* <Badge*/}
-                                {/* variant={*/}
-                                {/* document.confidenceScore >= 80*/}
-                                {/* ? "default"*/}
-                                {/* : document.confidenceScore >= 60*/}
-                                {/* ? "secondary"*/}
-                                {/* : "destructive"*/}
-                                {/* }*/}
-                                {/* className="gap-1"*/}
-                                {/* >*/}
-                                {/* <CheckCircle2 className="w-3 h-3" />*/}
-                                {/* {document.confidenceScore}% Confidence*/}
-                                {/* </Badge>*/}
-                                {/* )}*/}
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                                 <div className="flex items-center gap-1">
                                     <Calendar className="w-3 h-3" />
-                                    {structuredData?.documentInfo?.reportDate || "Date not available"}
+                                    {structuredData?.documentInfo?.reportDate?.report_date || // Access a key, e.g., report_date
+                                        structuredData?.documentInfo?.reportDate?.request_date || // Fallback to another key
+                                        JSON.stringify(structuredData?.documentInfo?.reportDate) || // Or stringify the whole object
+                                        "Date not available"}
                                 </div>
                                 <div className="flex items-center gap-1">
                                     <Building2 className="w-3 h-3" />
@@ -1016,31 +950,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                             </div>
                         </div>
                         <div className="flex items-center gap-1 flex-wrap">
-                            {/*<Select value={selectedLanguage} onValueChange={handleLanguageChange}>*/}
-                            {/* <SelectTrigger className="w-[120px]">*/}
-                            {/* <Languages className="w-3 h-3 mr-1" />*/}
-                            {/* <SelectValue />*/}
-                            {/* </SelectTrigger>*/}
-                            {/* <SelectContent>*/}
-                            {/* <SelectItem value="en">English</SelectItem>*/}
-                            {/* <SelectItem value="hi">?????</SelectItem>*/}
-                            {/* <SelectItem value="te">??????</SelectItem>*/}
-                            {/* <SelectItem value="kn">?????</SelectItem>*/}
-                            {/* <SelectItem value="ta">?????</SelectItem>*/}
-                            {/* <SelectItem value="bn">?????</SelectItem>*/}
-                            {/* </SelectContent>*/}
-                            {/*</Select>*/}
-                            <Button variant="outline" size="sm" onClick={handleReadAloud} disabled={!displayRecommendations}>
-                                {isSpeaking ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={handleDownload} className="gap-1 bg-transparent">
-                                <Download className="w-3 h-3" />
-                                <span className="hidden sm:inline">Export</span>
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={handleShare} className="gap-1 bg-transparent">
-                                <Share2 className="w-3 h-3" />
-                                <span className="hidden sm:inline">Share</span>
-                            </Button>
                         </div>
                     </div>
                     {isTranslating && (
@@ -1055,8 +964,9 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 <TabsList>
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="clinical">Clinical</TabsTrigger>
-                    <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
                     <TabsTrigger value="medical-history">Medical History</TabsTrigger>
+                    <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
+                    <TabsTrigger value="fraud-detection">Fraud Detection</TabsTrigger>
                     <TabsTrigger value="raw">Raw Data</TabsTrigger>
                 </TabsList>
                 <TabsContent value="overview" className="space-y-3">
@@ -1188,48 +1098,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                             </div>
                         </Card>
                     </div>
-                    {/* Document Summary */}
-                    {/*{structuredData?.documentSummary && (*/}
-                    {/* <Card className="border border-border/50">*/}
-                    {/* <div className="p-4 space-y-2">*/}
-                    {/* <div className="flex items-center gap-1">*/}
-                    {/* <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">*/}
-                    {/* <FileText className="w-3 h-3 text-primary" />*/}
-                    {/* </div>*/}
-                    {/* <h3 className="font-semibold text-foreground">Document Summary</h3>*/}
-                    {/* </div>*/}
-                    {/* <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">*/}
-                    {/* {structuredData.documentSummary}*/}
-                    {/* </p>*/}
-                    {/* </div>*/}
-                    {/* </Card>*/}
-                    {/*)}*/}
-                    {/* Bind identifiers and dates to overview as they are general */}
-                    {/*{categorizedFields.identifiers.length > 0 && (*/}
-                    {/* <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">*/}
-                    {/* <div className="p-4 space-y-4">*/}
-                    {/* <div className="flex items-center gap-2">*/}
-                    {/* <div className="p-1.5 rounded-md bg-indigo-500/10">*/}
-                    {/* <Hash className="w-4 h-4 text-indigo-600" />*/}
-                    {/* </div>*/}
-                    {/* <div className="flex-1">*/}
-                    {/* <h3 className="text-base font-semibold text-foreground">Medical Record Identifiers</h3>*/}
-                    {/* <p className="text-xs text-muted-foreground mt-1">Patient and admission identification numbers</p>*/}
-                    {/* </div>*/}
-                    {/* </div>*/}
-                    {/* <div className="grid gap-3 sm:grid-cols-2">*/}
-                    {/* {categorizedFields.identifiers.map((field, index) => (*/}
-                    {/* <div key={index} className="p-3 rounded-md bg-background border border-border/50 space-y-1">*/}
-                    {/* <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{field.label}</p>*/}
-                    {/* <p className="text-foreground leading-relaxed text-pretty whitespace-pre-wrap">*/}
-                    {/* {renderFieldValue(field.value)}*/}
-                    {/* </p>*/}
-                    {/* </div>*/}
-                    {/* ))}*/}
-                    {/* </div>*/}
-                    {/* </div>*/}
-                    {/* </Card>*/}
-                    {/*)}*/}
                     {categorizedFields.dates.length > 0 && (
                         <Card className="border border-cyan-500/20 bg-cyan-500/5 shadow-sm">
                             <div className="p-4 space-y-4">
@@ -1285,7 +1153,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </Card>
                     )}
                     {/* Medications */}
-                    {/* Medications */}
                     {structuredData?.clinicalData?.medications && Array.isArray(structuredData.clinicalData.medications) && structuredData.clinicalData.medications.length > 0 && (
                         <Card className="border border-border/50">
                             <div className="p-4 space-y-3">
@@ -1325,81 +1192,31 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                             </div>
                         </Card>
                     )}
-                    {/* Lab Results */}
-                    {/*{structuredData?.clinicalData?.labResults && structuredData.clinicalData.labResults.length > 0 && (*/}
-                    {/* <Card className="border border-border/50">*/}
-                    {/* <div className="p-4 space-y-3">*/}
-                    {/* <div className="flex items-center gap-1">*/}
-                    {/* <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center">*/}
-                    {/* <TestTube className="w-3 h-3 text-accent" />*/}
-                    {/* </div>*/}
-                    {/* <h3 className="font-semibold text-foreground">Lab Results</h3>*/}
-                    {/* </div>*/}
-                    {/* <div className="space-y-1">*/}
-                    {/* {structuredData.clinicalData.labResults.map((result: any, idx: number) => (*/}
-                    {/* <div key={idx} className="p-2 bg-muted/30 rounded-md border border-border/30">*/}
-                    {/* <div className="flex items-center justify-between">*/}
-                    {/* <p className="text-sm font-semibold text-foreground">{result.test}</p>*/}
-                    {/* {result.status && (*/}
-                    {/* <Badge*/}
-                    {/* variant={*/}
-                    {/* result.status === "Normal"*/}
-                    {/* ? "default"*/}
-                    {/* : result.status === "High" || result.status === "Low"*/}
-                    {/* ? "secondary"*/}
-                    {/* : "destructive"*/}
-                    {/* }*/}
-                    {/* >*/}
-                    {/* {result.status}*/}
-                    {/* </Badge>*/}
-                    {/* )}*/}
-                    {/* </div>*/}
-                    {/* <div className="mt-1 grid grid-cols-2 gap-1 text-xs">*/}
-                    {/* <div>*/}
-                    {/* <span className="text-muted-foreground">Value:</span>*/}
-                    {/* <p className="font-medium text-foreground">*/}
-                    {/* {result.measuredValue} {result.unit}*/}
-                    {/* </p>*/}
-                    {/* </div>*/}
-                    {/* {result.referenceRange && (*/}
-                    {/* <div>*/}
-                    {/* <span className="text-muted-foreground">Reference:</span>*/}
-                    {/* <p className="font-medium text-foreground">{result.referenceRange}</p>*/}
-                    {/* </div>*/}
-                    {/* )}*/}
-                    {/* </div>*/}
-                    {/* {result.notes && <p className="mt-1 text-xs text-muted-foreground italic">{result.notes}</p>}*/}
-                    {/* </div>*/}
-                    {/* ))}*/}
-                    {/* </div>*/}
-                    {/* </div>*/}
-                    {/* </Card>*/}
-                    {/*)}*/}
                     {/* Vital Signs */}
-                    {structuredData?.clinicalData?.vitalSigns &&
-                        Object.values(structuredData.clinicalData.vitalSigns).some((v) => v !== null) && (
-                            <Card className="border border-border/50">
-                                <div className="p-4 space-y-3">
-                                    <div className="flex items-center gap-1">
-                                        <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
-                                            <Activity className="w-3 h-3 text-primary" />
-                                        </div>
-                                        <h3 className="font-semibold text-foreground">Vital Signs</h3>
-                                    </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                        {Object.entries(structuredData.clinicalData.vitalSigns).map(
-                                            ([key, value]: [string, any]) =>
-                                                value && (
-                                                    <div key={key} className="space-y-1">
-                                                        <p className="text-xs text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}</p>
-                                                        <p className="text-sm font-semibold text-foreground">{value}</p>
-                                                    </div>
-                                                ),
-                                        )}
-                                    </div>
-                                </div>
-                            </Card>
-                        )}
+                    {/*{structuredData?.clinicalData?.vitalSigns &&*/}
+                    {/*    Object.values(structuredData.clinicalData.vitalSigns).some((v) => v !== null) && (*/}
+                    {/*        <Card className="border border-border/50">*/}
+                    {/*            <div className="p-4 space-y-3">*/}
+                    {/*                <div className="flex items-center gap-1">*/}
+                    {/*                    <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">*/}
+                    {/*                        <Activity className="w-3 h-3 text-primary" />*/}
+                    {/*                    </div>*/}
+                    {/*                    <h3 className="font-semibold text-foreground">Vital Signs</h3>*/}
+                    {/*                </div>*/}
+                    {/*                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">*/}
+                    {/*                    {Object.entries(structuredData.clinicalData.vitalSigns).map(*/}
+                    {/*                        ([key, value]: [string, any]) =>*/}
+                    {/*                            value && (*/}
+                    {/*                                <div key={key} className="space-y-1">*/}
+                    {/*                                    <p className="text-xs text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}</p>*/}
+                    {/*                                    <p className="text-sm font-semibold text-foreground">{value}</p>*/}
+                    {/*                                </div>*/}
+                    {/*                            ),*/}
+                    {/*                    )}*/}
+                    {/*                </div>*/}
+                    {/*            </div>*/}
+                    {/*        </Card>*/}
+                    {/*    )}*/}
                     {/* Procedures */}
                     {structuredData?.clinicalData?.procedures && Array.isArray(structuredData.clinicalData.procedures) && structuredData.clinicalData.procedures.length > 0 && (
                         <Card className="border border-blue-500/20 bg-blue-500/5 shadow-sm">
@@ -1958,11 +1775,101 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </Card>
                     )}
                 </TabsContent>
+                <TabsContent value="fraud-detection" className="space-y-3">
+                    {(document?.fraudDetection || document?.structuredData?.fraudDetection) ? (
+                        <>
+                            {/* Get the fraud detection data from either path */}
+                            {(() => {
+                                const fraudDetection = document?.fraudDetection || document?.structuredData?.fraudDetection;
+
+                                return (
+                                    <>
+                                        {/* Fraud Detection Summary Card */}
+                                        <Card className="border border-red-500/20 bg-red-500/5 shadow-sm">
+                                            <div className="p-4 space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="p-1.5 rounded-md bg-red-500/10">
+                                                        <Shield className="w-4 h-4 text-red-600" />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <h3 className="text-base font-semibold text-foreground">Fraud Detection Analysis</h3>
+                                                        <p className="text-xs text-muted-foreground mt-1">Document verification and authenticity checks</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </Card>
+
+                                        {/* Fraud Detection Results Table */}
+
+                                        {/* Detailed Analysis Sections */}
+                                        {fraudDetection.ecg && (
+                                            <Card className="border border-blue-500/20 bg-blue-500/5">
+                                                <div className="p-4 space-y-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <Activity className="w-4 h-4 text-blue-600" />
+                                                        <h4 className="text-base font-semibold text-foreground">ECG Analysis</h4>
+                                                    </div>
+                                                    <div className="grid gap-2 text-sm">
+                                                        {Object.entries(fraudDetection.ecg).map(([key, value]: [string, any], idx: number) => (
+                                                            <div key={idx} className="flex justify-between items-start p-2 bg-background rounded border border-border/50">
+                                                                <span className="text-muted-foreground capitalize font-medium">{key.replace(/_/g, ' ')}:</span>
+                                                                <span className="text-foreground font-medium">
+                                                                    {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </Card>
+                                        )}
+
+                                        {fraudDetection.tmt && (
+                                            <Card className="border border-purple-500/20 bg-purple-500/5">
+                                                <div className="p-4 space-y-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <Heart className="w-4 h-4 text-purple-600" />
+                                                        <h4 className="text-base font-semibold text-foreground">TMT Analysis</h4>
+                                                    </div>
+                                                    <div className="grid gap-2 text-sm">
+                                                        {Object.entries(fraudDetection.tmt).map(([key, value]: [string, any], idx: number) => (
+                                                            <div key={idx} className="flex justify-between items-start p-2 bg-background rounded border border-border/50">
+                                                                <span className="text-muted-foreground capitalize font-medium">{key.replace(/_/g, ' ')}:</span>
+                                                                <span className="text-foreground font-medium">
+                                                                    {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </Card>
+                                        )}
+                                    </>
+                                );
+                            })()}
+                        </>
+                    ) : (
+                        <Card className="border border-border/50">
+                            <div className="p-6 text-center">
+                                <Shield className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                                <p className="text-muted-foreground">No fraud detection data available for this document.</p>
+                            </div>
+                        </Card>
+                    )}
+                </TabsContent>
                 <TabsContent value="raw">
                     <Card className="border border-border/50">
                         <div className="p-4">
                             <pre className="text-xs text-foreground overflow-x-auto bg-muted/30 p-3 rounded-md">
-                                {JSON.stringify(structuredData, null, 2)}
+                                {(() => {
+                                    let displayStructured = { ...structuredData };
+                                    if (structuredData?.rawParsedData?.lab_results) {
+                                        displayStructured.clinicalData = {
+                                            ...displayStructured.clinicalData,
+                                            labResults: null  // Remove duplicate flattened lab results
+                                        };
+                                    }
+                                    return JSON.stringify(displayStructured, null, 2);
+                                })()}
                             </pre>
                         </div>
                     </Card>
@@ -2049,17 +1956,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 </Card>
             )}
             <div className="flex flex-wrap gap-2">
-                {/* Use router.push */}
-                {/*<Button onClick={() => router.push("/")} variant="outline" className="gap-1 bg-transparent">*/}
-                {/* <ArrowLeft className="w-3 h-3" />*/}
-                {/* <span className="hidden sm:inline">Upload Another</span>*/}
-                {/*</Button>*/}
-                {/*<Link href="/search">*/}
-                {/* <Button variant="outline" className="gap-1 bg-transparent">*/}
-                {/* <Search className="w-3 h-3" />*/}
-                {/* <span className="hidden sm:inline">Search Records</span>*/}
-                {/* </Button>*/}
-                {/*</Link>*/}
                 {/* Optional chaining for fileUrl */}
                 {document?.fileUrl && (
                     <a href={document.fileUrl} target="_blank" rel="noopener noreferrer" download={cleanDownloadFilename}>

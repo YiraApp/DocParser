@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server"
+﻿import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
 import { getSessionUser } from "@/lib/auth-server"
 
@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
 }
 
 // Helper: Map parsed_data to structured format
-function mapParsedDataToStructured(parsedData: any) {
+// Helper: Map parsed_data to structured format
+function mapParsedDataToStructured(parsedData: any, fraudDetection: any = null) {
     if (!parsedData) return {}
 
     const getPatientId = (patientIdField: any): string => {
@@ -137,8 +138,8 @@ function mapParsedDataToStructured(parsedData: any) {
         medicalHistoryQuestions: parsedData.medical_history_questions || [],
         // Preserve photo comparison data
         photoComparison: parsedData.photo_comparison || null,
-        // Preserve fraud detection data
-        fraudDetection: parsedData.fraud_detection || null,
+        // ✅ FIX: Preserve fraud detection data - use parameter, not from parsedData
+        fraudDetection: fraudDetection !== null ? fraudDetection : (parsedData.fraud_detection || null),
     }
 }
 // Helper: Extract vital signs
