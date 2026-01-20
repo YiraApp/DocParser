@@ -26,7 +26,7 @@ jobs:
 
       - name: npm install, build, and test
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npm run build
           mv ./build/static ./build/standalone/build
           mv ./public ./build/standalone
@@ -38,3 +38,4 @@ jobs:
           app-name: ${{ env.WEBAPP_NAME }}
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4CD99C0A8E5644A59F1852B46B253D9A }}
           package: ./build/standalone
+
