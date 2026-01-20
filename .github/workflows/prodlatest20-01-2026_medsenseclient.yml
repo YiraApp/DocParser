@@ -27,20 +27,10 @@ jobs:
       - name: Build Next.js app
         run: npm run build
 
-      - name: Prepare standalone package
-        run: |
-          mkdir deploy
-          cp -r .next/standalone/* deploy/
-          cp -r .next/static deploy/.next/
-          cp -r public deploy/public
-          cp package.json deploy/
-          cp next.config.js deploy/
-
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'medsenseclient'
-          slot-name: 'Production'
-          package: deploy
+          app-name: medsenseclient
+          slot-name: Production
+          package: .
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_97F18E18B05D473CAEA45A2F406F7627 }}
-
