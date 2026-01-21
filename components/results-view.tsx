@@ -1,5 +1,5 @@
 ﻿"use client"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -52,6 +52,8 @@ interface ParsedDocument {
     fields: Array<{ label: string; value: string }>
     summary: string
     notes: string[]
+
+
     structuredData?: any
     confidenceScore?: number
     healthRecommendations?: any
@@ -67,6 +69,7 @@ function normalizeField(field: any): { label: string; value: string } | null {
         return {
             label: field.label,
             value: String(field.value || ""),
+
         }
     }
     // Handle {fieldName, fieldValue} format
@@ -74,6 +77,7 @@ function normalizeField(field: any): { label: string; value: string } | null {
         return {
             label: field.fieldName,
             value: String(field.fieldValue || ""),
+
         }
     }
     // Handle {question, answer} format
@@ -81,6 +85,7 @@ function normalizeField(field: any): { label: string; value: string } | null {
         return {
             label: field.question,
             value: String(field.answer || ""),
+
         }
     }
     return null
@@ -198,14 +203,23 @@ function shouldExcludeField(label: string, structuredData: any): boolean {
 function categorizeFields(fields: Array<any>, structuredData: any = {}) {
     const categories = {
         patient: [] as Array<{ label: string; value: string }>,
+
         medical: [] as Array<{ label: string; value: string }>,
+
         medications: [] as Array<{ label: string; value: string }>,
+
         hospital: [] as Array<{ label: string; value: string }>,
+
         identifiers: [] as Array<{ label: string; value: string }>,
+
         dates: [] as Array<{ label: string; value: string }>,
+
         care: [] as Array<{ label: string; value: string }>,
+
         billing: [] as Array<{ label: string; value: string }>,
+
         other: [] as Array<{ label: string; value: string }>,
+
     }
     const billingKeywords = [
         "total bill",
@@ -397,7 +411,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
     const router = useRouter()
     const searchParams = useSearchParams()
     const [document, setDocument] = useState<any>(initialDocument || null)
-    // Initialize isLoading based on whether initialDocument is provided
     const [isLoading, setIsLoading] = useState(!initialDocument)
     const [error, setError] = useState<string | null>(null)
     const [selectedLanguage, setSelectedLanguage] = useState<string>("en")
@@ -407,38 +420,90 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
     const [isSpeaking, setIsSpeaking] = useState(false)
     const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null)
     const [showRecommendations, setShowRecommendations] = useState(true)
+
+    // Track if we've already initiated fetch for this ID to prevent duplicates
+    const fetchInitiatedRef = useRef(false)
+    const currentIdRef = useRef<string | null>(null)
+    const abortControllerRef = useRef<AbortController | null>(null)
+
     useEffect(() => {
+        // If initialDocument is provided, use it and don't fetch
         if (initialDocument) {
             setDocument(initialDocument)
             setIsLoading(false)
             setError(null)
+            fetchInitiatedRef.current = true
             return
         }
+
         const documentId = searchParams?.get("id")
+
+        // If no ID, set error and return
         if (!documentId) {
             setError("No document ID provided")
             setIsLoading(false)
             return
         }
-        const abortController = new AbortController()
-        fetch(`/api/parse-document?id=${documentId}`, { signal: abortController.signal })
-            .then((res) => {
-                if (!res.ok) throw new Error("Failed to fetch record")
-                return res.json()
-            })
-            .then((data) => {
-                console.log("[v0] Document data loaded:", data)
+
+        // If we already fetched this exact ID, skip to prevent duplicate fetch
+        if (fetchInitiatedRef.current && currentIdRef.current === documentId) {
+            console.log(`[ResultsView] Skipping duplicate fetch for ID: ${documentId}`)
+            return
+        }
+
+        // Mark this ID as being fetched
+        currentIdRef.current = documentId
+        fetchInitiatedRef.current = true
+
+        // Abort any previous requests
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+        }
+
+        // Create new abort controller for this fetch
+        abortControllerRef.current = new AbortController()
+        const abortController = abortControllerRef.current
+
+        const fetchDocument = async () => {
+            try {
+                setIsLoading(true)
+                setError(null)
+
+                console.log(`[ResultsView] Fetching document: ${documentId}`)
+                
+                const response = await fetch(`/api/parse-document?id=${documentId}`, {
+                    signal: abortController.signal
+                })
+
+                if (!response.ok) {
+                    throw new Error("Failed to fetch record")
+                }
+
+                const data = await response.json()
+                console.log("[ResultsView] Document data loaded successfully:", data)
                 setDocument(data)
-                setIsLoading(false)
-            })
-            .catch((err) => {
-                if (err.name === "AbortError") return
-                console.error("[v0] Fetch error:", err)
+            } catch (err) {
+                if (err instanceof Error && err.name === "AbortError") {
+                    console.log(`[ResultsView] Fetch aborted for ID: ${documentId}`)
+                    return
+                }
+                console.error("[ResultsView] Fetch error:", err)
                 setError("Failed to load record")
+            } finally {
                 setIsLoading(false)
-            })
-        return () => abortController.abort()
-    }, [searchParams, initialDocument]) // Depend on searchParams for dynamic ID changes
+            }
+        }
+
+        fetchDocument()
+
+        // Cleanup function
+        return () => {
+            if (abortController) {
+                abortController.abort()
+            }
+        }
+    }, [searchParams?.get("id"), initialDocument])
+
     const handleLanguageChange = async (language: string) => {
         // Stop any playing audio when language changes
         if (currentAudio) {
@@ -448,18 +513,17 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         }
         setSelectedLanguage(language)
         if (language === "en") {
-            setTranslatedContent(null) // Keep this line to reset content translation
+            setTranslatedContent(null)
             setTranslatedRecommendations(null)
             return
         }
         if (!document?.healthRecommendations) {
-            console.log("[v0] No health recommendations to translate")
+            console.log("[ResultsView] No health recommendations to translate")
             return
         }
         setIsTranslating(true)
         try {
-            console.log("[v0] Starting translation to:", language)
-            console.log("[v0] Recommendations to translate:", document.healthRecommendations)
+            console.log("[ResultsView] Starting translation to:", language)
             const response = await fetch("/api/translate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -470,15 +534,14 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             })
             if (!response.ok) {
                 const errorText = await response.text()
-                console.error("[v0] Translation API error:", response.status, errorText)
+                console.error("[ResultsView] Translation API error:", response.status, errorText)
                 throw new Error(`Translation failed: ${response.status} - ${errorText}`)
             }
             const data = await response.json()
-            console.log("[v0] Translation successful, received data:", data)
-            console.log("[v0] Setting translatedRecommendations:", data.translatedRecommendations)
+            console.log("[ResultsView] Translation successful")
             setTranslatedRecommendations(data.translatedRecommendations)
         } catch (error) {
-            console.error("[v0] Translation error:", error)
+            console.error("[ResultsView] Translation error:", error)
             alert(
                 `Failed to translate content: ${error instanceof Error ? error.message : "Unknown error"}. Please check if GOOGLE_TRANSLATE_KEY is configured.`,
             )
@@ -487,6 +550,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             setIsTranslating(false)
         }
     }
+
     const handleReadAloud = async () => {
         if (isSpeaking) {
             if (currentAudio) {
@@ -525,7 +589,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 textToRead += `${idx + 1}. ${step}\n`
             })
         }
-        // Use browser's Web Speech API
         const languageMap: { [key: string]: string } = {
             en: "en-US",
             hi: "hi-IN",
@@ -537,77 +600,55 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         const langCode = languageMap[selectedLanguage] || "en-US"
         try {
             setIsSpeaking(true)
-            console.log("[v0] Using Web Speech API for language:", langCode)
-            // Check if speech synthesis is available
+            console.log("[ResultsView] Using Web Speech API for language:", langCode)
             if (!window.speechSynthesis) {
                 throw new Error("Speech synthesis not supported in this browser")
             }
-            // Cancel any ongoing speech
             window.speechSynthesis.cancel()
             const utterance = new SpeechSynthesisUtterance(textToRead)
             utterance.lang = langCode
             utterance.rate = 0.9
             utterance.pitch = 1.0
             utterance.volume = 1.0
-            // Try to find the best voice for the language
             const voices = window.speechSynthesis.getVoices()
             const preferredVoice = voices.find((voice) => voice.lang === langCode || voice.lang.startsWith(selectedLanguage))
             if (preferredVoice) {
                 utterance.voice = preferredVoice
-                console.log("[v0] Using voice:", preferredVoice.name)
+                console.log("[ResultsView] Using voice:", preferredVoice.name)
             } else {
-                console.log("[v0] No specific voice found for", langCode, "using default")
+                console.log("[ResultsView] No specific voice found for", langCode, "using default")
             }
             utterance.onend = () => {
-                console.log("[v0] Speech synthesis ended")
+                console.log("[ResultsView] Speech synthesis ended")
                 setIsSpeaking(false)
             }
             utterance.onerror = (event) => {
-                console.error("[v0] Speech synthesis error:", event.error)
+                console.error("[ResultsView] Speech synthesis error:", event.error)
                 setIsSpeaking(false)
                 alert(`Speech failed: ${event.error}`)
             }
             window.speechSynthesis.speak(utterance)
         } catch (error: any) {
-            console.error("[v0] Text-to-speech error:", error)
+            console.error("[ResultsView] Text-to-speech error:", error)
             alert(`Text-to-speech failed: ${error.message}`)
             setIsSpeaking(false)
         }
     }
+
     const getDisplayContent = () => {
         if (selectedLanguage === "en" || !translatedContent) {
             return document?.structuredData
         }
         return translatedContent
     }
+
     const getDisplayRecommendations = () => {
-        console.log("[v0] getDisplayRecommendations called")
-        console.log("[v0] selectedLanguage:", selectedLanguage)
-        console.log("[v0] translatedRecommendations:", translatedRecommendations)
-        console.log("[v0] document.healthRecommendations:", document?.healthRecommendations)
         if (selectedLanguage !== "en" && translatedRecommendations) {
-            console.log("[v0] Returning translated recommendations")
-            console.log("[v0] Translated recommendations structure:", {
-                hasRecommendations: !!translatedRecommendations.recommendations,
-                recommendationsCount: translatedRecommendations.recommendations?.length || 0,
-                hasWarnings: !!translatedRecommendations.warnings,
-                warningsCount: translatedRecommendations.warnings?.length || 0,
-                hasNextSteps: !!translatedRecommendations.nextSteps,
-                nextStepsCount: translatedRecommendations.nextSteps?.length || 0,
-            })
             return translatedRecommendations
         }
-        console.log("[v0] Returning original recommendations")
-        console.log("[v0] Original recommendations structure:", {
-            hasRecommendations: !!document?.healthRecommendations?.recommendations,
-            recommendationsCount: document?.healthRecommendations?.recommendations?.length || 0,
-            hasWarnings: !!document?.healthRecommendations?.warnings,
-            warningsCount: document?.healthRecommendations?.warnings?.length || 0,
-            hasNextSteps: !!document?.healthRecommendations?.nextSteps,
-            nextStepsCount: document?.healthRecommendations?.nextSteps?.length || 0,
-        })
         return document?.healthRecommendations
     }
+
     const getConfidenceDisplay = (score: number | undefined) => {
         if (score === undefined || score === null) {
             return {
@@ -666,9 +707,11 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             }
         }
     }
+
     const confidenceDisplay = getConfidenceDisplay(document?.confidenceScore)
     const ConfidenceIcon = confidenceDisplay.icon
     const categorizedFields = categorizeFields(document?.fields || [], document?.structuredData || {})
+
     // Enhanced patient name extraction to fix "Unknown Patient" issue
     const patientNameField = categorizedFields.patient.find(field =>
         field.label.toLowerCase().includes('patient name') ||
@@ -744,6 +787,56 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         }
         return String(value)
     }
+    // Add this helper function before the main component, after renderFieldValue
+    const renderFraudDetectionMatches = (matches: any[], testType: string) => {
+        if (!Array.isArray(matches) || matches.length === 0) {
+            return null;
+        }
+
+        const colorScheme = testType === 'ecg' 
+            ? { border: 'border-blue-500/20', bg: 'bg-blue-500/5', accent: 'text-blue-600' }
+            : { border: 'border-purple-500/20', bg: 'bg-purple-500/5', accent: 'text-purple-600' };
+
+        return (
+            <div className="space-y-2 mt-2">
+                <p className={`text-sm font-semibold ${colorScheme.accent}`}>Matched Test Results ({matches.length})</p>
+                <div className="space-y-2">
+                    {matches.map((match: any, matchIdx: number) => (
+                        <div key={matchIdx} className={`p-3 rounded-lg border ${colorScheme.border} ${colorScheme.bg} space-y-2`}>
+                            <div className="grid gap-2 text-xs">
+                                {match.patient_name && (
+                                    <div className="flex justify-between items-start">
+                                        <span className="text-muted-foreground font-semibold">Patient:</span>
+                                        <span className="text-foreground font-medium">{match.patient_name}</span>
+                                    </div>
+                                )}
+                                {match.matched_tests !== undefined && (
+                                    <div className="flex justify-between items-start">
+                                        <span className="text-muted-foreground font-semibold">Matched:</span>
+                                        <span className="text-foreground font-medium">{match.matched_tests}/{match.total_tests}</span>
+                                    </div>
+                                )}
+                                {match.match_percentage !== undefined && (
+                                    <div className="flex justify-between items-start">
+                                        <span className="text-muted-foreground font-semibold">Match %:</span>
+                                        <span className={`font-bold ${match.match_percentage === 100 ? 'text-red-600' : 'text-orange-600'}`}>
+                                            {match.match_percentage}%
+                                        </span>
+                                    </div>
+                                )}
+                                {match.job_id && (
+                                    <div className="flex justify-between items-start">
+                                        <span className="text-muted-foreground font-semibold">Job ID:</span>
+                                        <span className="text-foreground font-mono text-xs truncate">{match.job_id}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
     // Added loading and error state handling
     if (isLoading) {
         return (
@@ -761,6 +854,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 {/* Use router.push */}
                 <Button
                     onClick={() => router.push("/")}
+
                     variant="outline"
                     className="gap-2 hover:bg-transparent hover:text-inherit active:bg-transparent"
                 >
@@ -1192,34 +1286,78 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </div>
                                         </div>
                                     ))}
+
+                                    {structuredData.clinicalData.medications.length > 3 && ( // Show "See more" only if there are more than 3 medications
+                                        <div className="text-center">
+                                            <Button
+                                                variant="link"
+                                                onClick={() => {
+                                                    const allMedications = document?.structuredData?.clinicalData?.medications || [];
+                                                    setDocument((prev: any) => ({
+                                                        ...prev,
+                                                        clinicalData: {
+                                                            ...prev.clinicalData,
+                                                            medications: allMedications,
+                                                        },
+                                                    }));
+                                                }}
+                                                className="text-sm font-medium text-primary"
+                                            >
+                                                See more medications ({structuredData.clinicalData.medications.length - 3} more)
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </Card>
                     )}
                     {/* Vital Signs */}
                     {/*{structuredData?.clinicalData?.vitalSigns &&*/}
+
                     {/*    Object.values(structuredData.clinicalData.vitalSigns).some((v) => v !== null) && (*/}
+
                     {/*        <Card className="border border-border/50">*/}
+
                     {/*            <div className="p-4 space-y-3">*/}
+
                     {/*                <div className="flex items-center gap-1">*/}
+
                     {/*                    <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">*/}
+
                     {/*                        <Activity className="w-3 h-3 text-primary" />*/}
+
                     {/*                    </div>*/}
+
                     {/*                    <h3 className="font-semibold text-foreground">Vital Signs</h3>*/}
+
                     {/*                </div>*/}
+
                     {/*                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">*/}
+
                     {/*                    {Object.entries(structuredData.clinicalData.vitalSigns).map(*/}
+
                     {/*                        ([key, value]: [string, any]) =>*/}
+
                     {/*                            value && (*/}
+
                     {/*                                <div key={key} className="space-y-1">*/}
+
                     {/*                                    <p className="text-xs text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}</p>*/}
+
                     {/*                                    <p className="text-sm font-semibold text-foreground">{value}</p>*/}
+
                     {/*                                </div>*/}
+
                     {/*                            ),*/}
+
                     {/*                    )}*/}
+
                     {/*                </div>*/}
+
                     {/*            </div>*/}
+
                     {/*        </Card>*/}
+
                     {/*    )}*/}
                     {/* Procedures */}
                     {structuredData?.clinicalData?.procedures && Array.isArray(structuredData.clinicalData.procedures) && structuredData.clinicalData.procedures.length > 0 && (
@@ -1310,6 +1448,29 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                                     )}
                                                                 </div>
                                                             ))}
+
+                                                            {exam.tests.length > 3 && ( // Show "See more" button if there are more than 3 tests
+                                                                <div className="text-center">
+                                                                    <Button
+                                                                        variant="link"
+                                                                        onClick={() => {
+                                                                            const allTests = exam.tests || [];
+                                                                            // Find the parent of 'tests' array to update state correctly
+                                                                            setDocument((prev: any) => {
+                                                                                const cloned = { ...prev };
+                                                                                const examToUpdate = cloned.structuredData?.clinicalData?.imagingFindings?.find((e: any) => e.examination_name === exam.examination_name);
+                                                                                if (examToUpdate) {
+                                                                                    examToUpdate.tests = allTests;
+                                                                                }
+                                                                                return cloned;
+                                                                            });
+                                                                        }}
+                                                                        className="text-sm font-medium text-primary"
+                                                                    >
+                                                                        See more tests ({exam.tests.length - 3} more)
+                                                                    </Button>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     ) : (
                                                         <p className="text-sm text-muted-foreground">No test results available</p>
@@ -1339,7 +1500,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </Card>
                     )}
                     {/* Photo Comparison */}
-                    {structuredData?.photoComparison && structuredData.photoComparison.comparison_performed && (
+                    {structuredData?.photoComparison && Object.keys(structuredData.photoComparison).length > 0 && (
                         <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">
                             <div className="p-4 space-y-4">
                                 <div className="flex items-center gap-2">
@@ -1351,65 +1512,156 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                         <p className="text-xs text-muted-foreground mt-1">Identity verification and image matching results</p>
                                     </div>
                                 </div>
-                                {/* Match Result */}
-                                <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
-                                    <div className="flex items-center gap-2">
-                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${structuredData.photoComparison.match?.toUpperCase() === "YES"
-                                            ? "bg-green-500/10"
-                                            : "bg-red-500/10"
-                                            }`}>
-                                            {structuredData.photoComparison.match?.toUpperCase() === "YES" ? (
-                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                            ) : (
-                                                <AlertCircle className="w-4 h-4 text-red-600" />
-                                            )}
-                                        </div>
-                                        <div>
-                                            <p className="text-xs text-muted-foreground">Match Status</p>
-                                            <Badge variant={structuredData.photoComparison.match?.toUpperCase() === "YES" ? "default" : "destructive"}>
-                                                {structuredData.photoComparison.match || "Unknown"}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                </div>
-                                {/* Confidence Level */}
-                                {structuredData.photoComparison.confidence && (
+
+                                {/* Confidence Level - Numeric */}
+                                {structuredData.photoComparison.confidence !== undefined && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
-                                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Confidence Level</p>
+                                        <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Confidence Level</p>
                                         <div className="flex items-center gap-2">
-                                            <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
-                                                <div
-                                                    className={`h-full transition-all ${structuredData.photoComparison.confidence?.toLowerCase() === "high"
-                                                        ? "bg-green-500 w-full"
-                                                        : structuredData.photoComparison.confidence?.toLowerCase() === "medium"
-                                                            ? "bg-yellow-500 w-2/3"
-                                                            : "bg-red-500 w-1/3"
-                                                        }`}
-                                                />
+                                            <div className="flex-1 bg-muted rounded-full h-2.5 overflow-hidden">
+                                                {(() => {
+                                                    const confidence = structuredData.photoComparison.confidence;
+                                                    let bgColor = "bg-red-500";
+                                                    let widthClass = "w-1/3";
+
+                                                    if (typeof confidence === 'number') {
+                                                        if (confidence >= 80) {
+                                                            bgColor = "bg-green-500";
+                                                            widthClass = "w-full";
+                                                        } else if (confidence >= 50) {
+                                                            bgColor = "bg-yellow-500";
+                                                            widthClass = "w-2/3";
+                                                        }
+                                                    }
+
+                                                    return <div className={`h-full transition-all ${bgColor} ${widthClass}`} />;
+                                                })()}
                                             </div>
                                             <Badge
                                                 variant={
-                                                    structuredData.photoComparison.confidence?.toLowerCase() === "high"
+                                                    (typeof structuredData.photoComparison.confidence === 'number' && structuredData.photoComparison.confidence >= 80)
                                                         ? "default"
-                                                        : structuredData.photoComparison.confidence?.toLowerCase() === "medium"
+                                                        : (typeof structuredData.photoComparison.confidence === 'number' && structuredData.photoComparison.confidence >= 50)
                                                             ? "secondary"
                                                             : "destructive"
                                                 }
                                             >
-                                                {structuredData.photoComparison.confidence}
+                                                {typeof structuredData.photoComparison.confidence === 'number'
+                                                    ? `${structuredData.photoComparison.confidence}%`
+                                                    : structuredData.photoComparison.confidence}
                                             </Badge>
                                         </div>
                                     </div>
                                 )}
-                                {/* Reason/Details */}
-                                {structuredData.photoComparison.reason && (
+
+                                {/* Similarity Score */}
+                                {structuredData.photoComparison.similarity !== undefined && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
-                                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Analysis Details</p>
+                                        <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Similarity Score</p>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1 bg-muted rounded-full h-2.5 overflow-hidden">
+                                                {(() => {
+                                                    const similarity = structuredData.photoComparison.similarity;
+                                                    let bgColor = "bg-red-500";
+                                                    let widthClass = "w-1/3";
+
+                                                    if (typeof similarity === 'number') {
+                                                        if (similarity >= 0.8) {
+                                                            bgColor = "bg-green-500";
+                                                            widthClass = "w-full";
+                                                        } else if (similarity >= 0.5) {
+                                                            bgColor = "bg-yellow-500";
+                                                            widthClass = "w-2/3";
+                                                        }
+                                                    }
+
+                                                    return <div className={`h-full transition-all ${bgColor} ${widthClass}`} />;
+                                                })()}
+                                            </div>
+                                            <Badge
+                                                variant={
+                                                    (typeof structuredData.photoComparison.similarity === 'number' && structuredData.photoComparison.similarity >= 0.8)
+                                                        ? "default"
+                                                        : (typeof structuredData.photoComparison.similarity === 'number' && structuredData.photoComparison.similarity >= 0.5)
+                                                            ? "secondary"
+                                                            : "destructive"
+                                                }
+                                            >
+                                                {typeof structuredData.photoComparison.similarity === 'number'
+                                                    ? `${(structuredData.photoComparison.similarity * 100).toFixed(1)}%`
+                                                    : structuredData.photoComparison.similarity}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Image Quality Metrics */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    {structuredData.photoComparison.quality_image1 !== undefined && (
+                                        <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Image 1 Quality</p>
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-blue-500 transition-all"
+                                                        style={{
+                                                            width: `${Math.min(structuredData.photoComparison.quality_image1, 100)}%`
+                                                        }}
+                                                    />
+                                                </div>
+                                                <span className="text-sm font-semibold text-foreground min-w-[45px]">
+                                                    {structuredData.photoComparison.quality_image1}%
+
+
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {structuredData.photoComparison.quality_image2 !== undefined && (
+                                        <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Image 2 Quality</p>
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-blue-500 transition-all"
+                                                        style={{
+                                                            width: `${Math.min(structuredData.photoComparison.quality_image2, 100)}%`
+                                                        }}
+                                                    />
+                                                </div>
+                                                <span className="text-sm font-semibold text-foreground min-w-[45px]">
+                                                    {structuredData.photoComparison.quality_image2}%
+
+
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Threshold Used */}
+                                {structuredData.photoComparison.threshold_used !== undefined && (
+                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                        <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Threshold Used</p>
+                                        <p className="text-sm font-semibold text-foreground">
+                                            {typeof structuredData.photoComparison.threshold_used === 'number'
+                                                ? structuredData.photoComparison.threshold_used.toFixed(2)
+                                                : structuredData.photoComparison.threshold_used}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Reason/Details */}
+                                {structuredData.photoComparison.reason && structuredData.photoComparison.reason.trim() !== "" && (
+                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                        <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Analysis Details</p>
                                         <p className="text-sm text-foreground leading-relaxed">
                                             {structuredData.photoComparison.reason}
                                         </p>
                                     </div>
                                 )}
+
                                 {/* Images Found */}
                                 {structuredData.photoComparison.images_found && Array.isArray(structuredData.photoComparison.images_found) && structuredData.photoComparison.images_found.length > 0 && (
                                     <div className="space-y-2">
@@ -1435,6 +1687,30 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                     </div>
                                                 </div>
                                             ))}
+
+                                            {structuredData.photoComparison.images_found.length > 3 && ( // Show "See more" button if there are more than 3 images
+                                                <div className="text-center">
+                                                    <Button
+                                                        variant="link"
+                                                        onClick={() => {
+                                                            const allImages = structuredData.photoComparison.images_found || [];
+                                                            setDocument((prev: any) => ({
+                                                                ...prev,
+                                                                structuredData: {
+                                                                    ...prev.structuredData,
+                                                                    photoComparison: {
+                                                                        ...prev.structuredData.photoComparison,
+                                                                        images_found: allImages,
+                                                                    },
+                                                                },
+                                                            }));
+                                                        }}
+                                                        className="text-sm font-medium text-primary"
+                                                    >
+                                                        See more images ({structuredData.photoComparison.images_found.length - 3} more)
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -1502,7 +1778,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                                 {medication.replace(/^\d+\.\s*/, "")}
                                                             </p>
                                                         </div>
-                                                    ))}
+                                                   ))}
                                                 </div>
                                             </div>
                                         )
@@ -1804,6 +2080,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                         </Card>
 
                                         {/* ECG Analysis Section */}
+                                        {/* ECG Analysis Section */}
                                         {fraudDetection.ecg && (
                                             <Card className="border border-blue-500/20 bg-blue-500/5">
                                                 <div className="p-4 space-y-3">
@@ -1812,19 +2089,32 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                         <h4 className="text-base font-semibold text-foreground">ECG Analysis</h4>
                                                     </div>
                                                     <div className="grid gap-2 text-sm">
-                                                        {Object.entries(fraudDetection.ecg).map(([key, value]: [string, any], idx: number) => (
-                                                            <div key={idx} className="flex justify-between items-start p-2 bg-background rounded border border-border/50">
-                                                                <span className="text-muted-foreground capitalize font-medium">{key.replace(/_/g, ' ')}:</span>
-                                                                <span className="text-foreground font-medium">
-                                                                    {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
-                                                                </span>
-                                                            </div>
-                                                        ))}
+                                                        {Object.entries(fraudDetection.ecg).map(([key, value]: [string, any], idx: number) => {
+                                                            // Handle matches array specially
+                                                            if (key === 'matches' && Array.isArray(value)) {
+                                                                return (
+                                                                    <div key={idx} className="col-span-full">
+                                                                        {renderFraudDetectionMatches(value, 'ecg')}
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            // Handle other properties normally
+                                                            return (
+                                                                <div key={idx} className="flex justify-between items-start p-2 bg-background rounded border border-border/50">
+                                                                    <span className="text-muted-foreground capitalize font-medium">{key.replace(/_/g, ' ')}:</span>
+                                                                    <span className="text-foreground font-medium">
+                                                                        {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : Array.isArray(value) ? `${value.length} items` : String(value)}
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             </Card>
                                         )}
 
+                                  
                                         {/* TMT Analysis Section */}
                                         {fraudDetection.tmt && (
                                             <Card className="border border-purple-500/20 bg-purple-500/5">
@@ -1877,6 +2167,29 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                                                     </div>
                                                                                 </div>
                                                                             ))}
+
+                                                                            {value.length > 3 && ( // Show "See more" button if there are more than 3 matched tests
+                                                                                <div className="text-center">
+                                                                                    <Button
+                                                                                        variant="link"
+                                                                                        onClick={() => {
+                                                                                            const allMatches = value || [];
+                                                                                            // Find the parent of 'matches' array to update state correctly
+                                                                                            setDocument((prev: any) => {
+                                                                                                const cloned = { ...prev };
+                                                                                                const tmtToUpdate = cloned.structuredData?.fraudDetection?.tmt;
+                                                                                                if (tmtToUpdate) {
+                                                                                                    tmtToUpdate.matches = allMatches;
+                                                                                                }
+                                                                                                return cloned;
+                                                                                            });
+                                                                                        }}
+                                                                                        className="text-sm font-medium text-primary"
+                                                                                    >
+                                                                                        See more matches ({value.length - 3} more)
+                                                                                    </Button>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 );
