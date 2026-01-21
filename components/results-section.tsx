@@ -208,7 +208,7 @@ export function ResultsSection({ document, onNewUpload, onClose }: ResultsSectio
                 <Button
                     onClick={handleClose}
                     variant="outline"
-                    className="gap-2"
+                    className="gap-2 hover:bg-transparent hover:text-inherit active:bg-transparent"
                 >
                     <ArrowLeft className="w-4 h-4" />
                     Back

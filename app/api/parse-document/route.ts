@@ -156,7 +156,8 @@ function safeStringify(value: any): string {
     }
     return String(value)
 }
-// **GET - Fetch document by job_id from documents collection**
+
+// **GET - Fetch document directly from webhook_responses and bind to structured format**
 export async function GET(request: NextRequest) {
     try {
         const id = request.nextUrl.searchParams.get("id")
@@ -171,83 +172,82 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
         }
         const db = await getDatabase()
-        const documentsCollection = db.collection("documents")
         const webhookCollection = db.collection("webhook_responses")
-        // **Priority 1: Search documents collection by job_id**
-        console.log("[PARSE-DOCUMENT GET] 🔍 Searching documents collection for job_id:", id)
-        let doc: any = await documentsCollection.findOne({ job_id: id })
-        if (doc) {
-            console.log("[PARSE-DOCUMENT GET] ✅ Found in documents collection")
-        } else {
-            console.log("[PARSE-DOCUMENT GET] ⚠️ Not found in documents, trying webhook_responses...")
-            // **Priority 2: Search webhook_responses as fallback**
-            const webhook = await webhookCollection.findOne({ job_id: id })
-            if (webhook && webhook.parsed_data) {
-                console.log("[PARSE-DOCUMENT GET] ✅ Found in webhook_responses, transforming...")
-                // Enrich parsed_data in fallback case to match webhook POST behavior
-                const enrichedParsedData = {
-                    ...webhook.parsed_data,
-                    fraud_detection: webhook.fraud_detection,
-                }
-                doc = {
-                    job_id: webhook.job_id,
-                    file_name: `Document_${webhook.job_id}`,
-                    document_type: "Medical Report",
-                    status: webhook.status || "completed",
-                    parsed_data: enrichedParsedData, // Enriched here
-                    fraud_detection: webhook.fraud_detection || null,
-                    created_at: webhook.received_at || new Date(),
-                    confidence_score: 85,
-                }
-            } else {
-                console.error("[PARSE-DOCUMENT GET] ❌ Document not found in any collection")
-                return NextResponse.json(
-                    { error: "Document not found" },
-                    { status: 404 }
-                )
-            }
+        const jobCollection = db.collection("job_ids")
+
+        // **Direct binding: Fetch from webhook_responses**
+        console.log("[PARSE-DOCUMENT GET] 🔍 Fetching from webhook_responses for job_id:", id)
+        const webhook = await webhookCollection.findOne({ job_id: id })
+
+        if (!webhook) {
+            console.error("[PARSE-DOCUMENT GET] ❌ Document not found in webhook_responses")
+            return NextResponse.json(
+                { error: "Document not found" },
+                { status: 404 }
+            )
         }
-        // **Ensure transformations are applied**
-        if (doc.parsed_data && !doc.structured_data) {
-            console.log("[PARSE-DOCUMENT GET] 🔄 Transforming parsed_data to structured_data")
-            doc.structured_data = mapParsedDataToStructured(doc.parsed_data, doc.fraud_detection)
-            doc.fields = extractFieldsFromParsedData(doc.parsed_data)
-            doc.summary = buildDocumentSummary(doc.parsed_data)
+
+        if (!webhook.parsed_data) {
+            console.error("[PARSE-DOCUMENT GET] ❌ No parsed_data in webhook response")
+            return NextResponse.json(
+                { error: "Document has no parsed data" },
+                { status: 404 }
+            )
         }
-        // **Patch for old data: Ensure fraudDetection is set in structured_data if available elsewhere**
-        if (!doc.structured_data?.fraudDetection && (doc.fraud_detection || doc.parsed_data?.fraud_detection)) {
-            console.log("[PARSE-DOCUMENT GET] 🛠 Patching fraudDetection in structured_data")
-            doc.structured_data.fraudDetection = doc.fraud_detection || doc.parsed_data?.fraud_detection || null
+
+        console.log("[PARSE-DOCUMENT GET] ✅ Found in webhook_responses")
+
+        // Get job info for user email and filename
+        const jobRecord = await jobCollection.findOne({ job_id: id })
+        const userEmail = jobRecord?.user_email || "anonymous"
+        const fileName = jobRecord?.file_name || `Document_${id}`
+
+        // **Transform webhook data to structured format**
+        const enrichedParsedData = {
+            ...webhook.parsed_data,
+            fraud_detection: webhook.fraud_detection,
         }
+
+        const doc = {
+            job_id: webhook.job_id,
+            file_name: fileName,
+            document_type: "Medical Report",
+            status: webhook.status || "completed",
+            parsed_data: enrichedParsedData,
+            fraud_detection: webhook.fraud_detection || null,
+            created_at: webhook.received_at || new Date(),
+            confidence_score: 85,
+            user_email: userEmail,
+        }
+
+        // **Transform to structured data**
+        console.log("[PARSE-DOCUMENT GET] 🔄 Transforming parsed_data to structured_data")
+        const structured_data = mapParsedDataToStructured(doc.parsed_data, doc.fraud_detection)
+        const fields = extractFieldsFromParsedData(doc.parsed_data)
+        const summary = buildDocumentSummary(doc.parsed_data)
+
         // **Format response - Include complete structured data with all parsed data fields**
-        const structuredData = doc.structured_data || {}
-        // Merge parsed_data into structured data to preserve all fields
         const completeStructuredData = {
-            ...structuredData,
-            // Ensure medical history questions are included
-            medicalHistoryQuestions: doc.parsed_data?.medical_history_questions || structuredData.medicalHistoryQuestions || [],
-            // Ensure photo comparison is included
-            photoComparison: doc.parsed_data?.photo_comparison || structuredData.photoComparison || null,
-            // Updated fallback: Prefer structured, then doc-level, then parsed
-            fraudDetection: structuredData.fraudDetection || doc.fraud_detection || doc.parsed_data?.fraud_detection || null,
-            // Ensure all raw parsed data is accessible
+            ...structured_data,
+            medicalHistoryQuestions: doc.parsed_data?.medical_history_questions || structured_data.medicalHistoryQuestions || [],
+            photoComparison: doc.parsed_data?.photo_comparison || structured_data.photoComparison || null,
+            fraudDetection: structured_data.fraudDetection || doc.fraud_detection || doc.parsed_data?.fraud_detection || null,
             rawParsedData: doc.parsed_data || {},
         }
+
         const formattedData = {
-            id: doc.job_id || doc._id?.toString() || id,
+            id: doc.job_id || id,
             fileName: doc.file_name || "Untitled Document",
-            fileUrl: doc.file_url || undefined,
             uploadedAt: doc.created_at?.toISOString?.() || new Date().toISOString(),
             documentType: doc.document_type || "Medical Document",
-            fields: doc.fields || [],
-            summary: doc.summary || "",
-            notes: doc.notes || [],
+            fields: fields || [],
+            summary: summary || "",
             structuredData: completeStructuredData,
             confidenceScore: doc.confidence_score || undefined,
-            healthRecommendations: doc.health_recommendations || undefined,
             fraudDetection: completeStructuredData.fraudDetection,
         }
-        console.log("[PARSE-DOCUMENT GET] ✅ Returning formatted data")
+
+        console.log("[PARSE-DOCUMENT GET] ✅ Returning formatted data from webhook_responses")
         console.log("[PARSE-DOCUMENT GET] Medical History Questions Count:", formattedData.structuredData.medicalHistoryQuestions.length)
         console.log("[PARSE-DOCUMENT GET] Fraud Detection:", !!formattedData.fraudDetection)
         return NextResponse.json(formattedData)
@@ -259,7 +259,38 @@ export async function GET(request: NextRequest) {
         )
     }
 }
-// **POST FUNCTION - Migrate webhooks to documents**
+
+// **DELETE - Clear all documents from documents collection**
+export async function DELETE(request: NextRequest) {
+    try {
+        const sessionUser = await getSessionUser(request)
+        if (!sessionUser?.isAdmin) {
+            return NextResponse.json({ error: "Admin only" }, { status: 403 })
+        }
+
+        const db = await getDatabase()
+        const documentsCollection = db.collection("documents")
+
+        console.log("[PARSE-DOCUMENT DELETE] 🗑️ Deleting all documents from collection...")
+        const result = await documentsCollection.deleteMany({})
+
+        console.log("[PARSE-DOCUMENT DELETE] ✅ Deleted", result.deletedCount, "documents")
+
+        return NextResponse.json({
+            success: true,
+            message: `Successfully deleted ${result.deletedCount} documents`,
+            deletedCount: result.deletedCount,
+        })
+    } catch (error) {
+        console.error("[PARSE-DOCUMENT DELETE] ❌ Error:", error)
+        return NextResponse.json(
+            { error: "Failed to delete documents" },
+            { status: 500 }
+        )
+    }
+}
+
+// **POST FUNCTION - Migrate webhooks to documents (optional - can be removed if not needed)**
 export async function POST(request: NextRequest) {
     try {
         const sessionUser = await getSessionUser(request)
@@ -300,8 +331,7 @@ export async function POST(request: NextRequest) {
                 status: "completed",
                 user_email: "webhook@system.com",
                 // Parsed and structured data
-                parsed_data: enrichedParsedData, // Updated: Use enriched
-                // Updated: Pass webhook.fraud_detection as second param
+                parsed_data: enrichedParsedData,
                 structured_data: mapParsedDataToStructured(enrichedParsedData, webhook.fraud_detection),
                 fields: extractFieldsFromParsedData(enrichedParsedData),
                 // Fraud detection data

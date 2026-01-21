@@ -759,10 +759,15 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 <h2 className="text-xl font-bold text-foreground">Error loading record</h2>
                 <p className="text-muted-foreground">{error}</p>
                 {/* Use router.push */}
-                <Button onClick={() => router.push("/")} variant="outline" className="gap-2">
+                <Button
+                    onClick={() => router.push("/")}
+                    variant="outline"
+                    className="gap-2 hover:bg-transparent hover:text-inherit active:bg-transparent"
+                >
                     <ArrowLeft className="w-4 h-4" />
                     Go Back
                 </Button>
+
             </div>
         )
     }
@@ -774,7 +779,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 <h2 className="text-xl font-bold text-foreground">No record found</h2>
                 <p className="text-muted-foreground">The requested record could not be loaded or does not exist.</p>
                 {/* Use router.push */}
-                <Button onClick={() => router.push("/")} variant="outline" className="gap-2">
+                <Button onClick={() => router.push("/")} variant="outline" className="gap-2 hover:bg-transparent hover:text-inherit active:bg-transparent">
                     <ArrowLeft className="w-4 h-4" />
                     Go Back
                 </Button>
@@ -964,7 +969,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="clinical">Clinical</TabsTrigger>
                     <TabsTrigger value="medical-history">Medical History</TabsTrigger>
-                    <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
+                    {/*<TabsTrigger value="recommendations">Recommendations</TabsTrigger>*/}
                     <TabsTrigger value="fraud-detection">Fraud Detection</TabsTrigger>
                     <TabsTrigger value="raw">Raw Data</TabsTrigger>
                 </TabsList>
@@ -1798,9 +1803,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </div>
                                         </Card>
 
-                                        {/* Fraud Detection Results Table */}
-
-                                        {/* Detailed Analysis Sections */}
+                                        {/* ECG Analysis Section */}
                                         {fraudDetection.ecg && (
                                             <Card className="border border-blue-500/20 bg-blue-500/5">
                                                 <div className="p-4 space-y-3">
@@ -1822,6 +1825,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </Card>
                                         )}
 
+                                        {/* TMT Analysis Section */}
                                         {fraudDetection.tmt && (
                                             <Card className="border border-purple-500/20 bg-purple-500/5">
                                                 <div className="p-4 space-y-3">
@@ -1830,14 +1834,64 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                         <h4 className="text-base font-semibold text-foreground">TMT Analysis</h4>
                                                     </div>
                                                     <div className="grid gap-2 text-sm">
-                                                        {Object.entries(fraudDetection.tmt).map(([key, value]: [string, any], idx: number) => (
-                                                            <div key={idx} className="flex justify-between items-start p-2 bg-background rounded border border-border/50">
-                                                                <span className="text-muted-foreground capitalize font-medium">{key.replace(/_/g, ' ')}:</span>
-                                                                <span className="text-foreground font-medium">
-                                                                    {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
-                                                                </span>
-                                                            </div>
-                                                        ))}
+                                                        {Object.entries(fraudDetection.tmt).map(([key, value]: [string, any], idx: number) => {
+                                                            // Handle matches array specially
+                                                            if (key === 'matches' && Array.isArray(value)) {
+                                                                return (
+                                                                    <div key={idx} className="col-span-full space-y-2">
+                                                                        <p className="text-muted-foreground capitalize font-medium">Matched Tests:</p>
+                                                                        <div className="space-y-2">
+                                                                            {value.map((match: any, matchIdx: number) => (
+                                                                                <div key={matchIdx} className="p-3 bg-background rounded border border-purple-500/20 space-y-2">
+                                                                                    <div className="grid gap-2 text-xs">
+                                                                                        {match.patient_name && (
+                                                                                            <div className="flex justify-between items-start">
+                                                                                                <span className="text-muted-foreground font-medium">Patient Name:</span>
+                                                                                                <span className="text-foreground font-medium">{match.patient_name}</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        {match.matched_tests !== undefined && (
+                                                                                            <div className="flex justify-between items-start">
+                                                                                                <span className="text-muted-foreground font-medium">Matched Tests:</span>
+                                                                                                <span className="text-foreground font-medium">{match.matched_tests}</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        {match.total_tests !== undefined && (
+                                                                                            <div className="flex justify-between items-start">
+                                                                                                <span className="text-muted-foreground font-medium">Total Tests:</span>
+                                                                                                <span className="text-foreground font-medium">{match.total_tests}</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        {match.match_percentage !== undefined && (
+                                                                                            <div className="flex justify-between items-start">
+                                                                                                <span className="text-muted-foreground font-medium">Match Percentage:</span>
+                                                                                                <span className="text-foreground font-medium text-purple-600">{match.match_percentage}%</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        {match.job_id && (
+                                                                                            <div className="flex justify-between items-start">
+                                                                                                <span className="text-muted-foreground font-medium">Job ID:</span>
+                                                                                                <span className="text-foreground font-mono text-xs">{match.job_id}</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            // Handle other properties normally
+                                                            return (
+                                                                <div key={idx} className="flex justify-between items-start p-2 bg-background rounded border border-border/50">
+                                                                    <span className="text-muted-foreground capitalize font-medium">{key.replace(/_/g, ' ')}:</span>
+                                                                    <span className="text-foreground font-medium">
+                                                                        {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : Array.isArray(value) ? `${value.length} items` : String(value)}
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             </Card>
@@ -1966,10 +2020,15 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 )}
                 {/* Optional chaining for structuredData */}
                 {document?.structuredData && (
-                    <Button onClick={handleDownloadJSON} variant="outline" className="gap-1 bg-transparent">
+                    <Button
+                        onClick={handleDownloadJSON}
+                        variant="outline"
+                        className="gap-1 bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-700"
+                    >
                         <FileJson className="w-3 h-3" />
                         <span className="hidden sm:inline">Download JSON</span>
                     </Button>
+
                 )}
             </div>
         </div>

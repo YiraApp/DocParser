@@ -305,11 +305,12 @@ export default function HomePage() {
                                     variant="ghost"
                                     size="sm"
                                     onClick={handleSearchToggle}
-                                    className="gap-2"
+                                    className="gap-2 hover:bg-transparent hover:text-inherit"
                                 >
                                     <Search className="w-4 h-4" />
                                     <span className="hidden sm:inline">Search</span>
                                 </Button>
+
                                 {showSearch && (
                                     <div className="absolute right-0 top-full mt-2 w-[500px] max-h-[600px] z-50 rounded-xl border bg-background shadow-xl overflow-hidden flex flex-col">
                                         <SearchInterface
@@ -325,21 +326,23 @@ export default function HomePage() {
                                     variant="ghost"
                                     size="sm"
                                     onClick={handleCreateAccountClick}
-                                    className="gap-2"
+                                    className="gap-2 bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-700"
                                 >
                                     <UserPlus className="w-4 h-4" />
                                     <span className="hidden sm:inline">Create Account</span>
                                 </Button>
+
                             )}
                             <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={handleLogout}
-                                className="gap-2"
+                                className="gap-2 bg-blue-600 text-white hover:bg-blue-600 active:bg-blue-600"
                             >
                                 <LogOut className="w-4 h-4" />
                                 <span className="hidden sm:inline">Logout</span>
                             </Button>
+
                         </div>
                     </div>
                 </div>
