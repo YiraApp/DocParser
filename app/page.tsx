@@ -61,14 +61,12 @@ export default function HomePage() {
         const maxAttempts = 240 // 4 minutes with 1-second intervals
         const pollInterval = setInterval(async () => {
             pollAttempts++
-            console.log(`[PAGE] Polling for document... (attempt ${pollAttempts}/${maxAttempts})`)
             try {
                 const response = await fetch(`/api/parse-document?id=${processingState.documentId}`)
                 if (response.ok) {
                     const fullData = await response.json()
                     // Check if document has structured data (webhook has processed it)
                     if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
-                        console.log("[PAGE] Document ready! Loading results...")
                         const formattedData = {
                             id: fullData.id || processingState.documentId,
                             fileName: fullData.fileName || processingState.fileName,
@@ -81,6 +79,7 @@ export default function HomePage() {
                             structuredData: fullData.structuredData || {},
                             confidenceScore: fullData.confidenceScore,
                             healthRecommendations: fullData.healthRecommendations,
+                            fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
                             jobId: processingState.jobId,
                         }
                         // Update parsed document and show results view
@@ -98,11 +97,9 @@ export default function HomePage() {
                     }
                 }
             } catch (err) {
-                console.error("[PAGE] Polling error:", err)
             }
             // Stop polling after max attempts
             if (pollAttempts >= maxAttempts) {
-                console.warn("[PAGE] Max polling attempts reached")
                 setProcessingState({
                     isProcessing: false,
                     fileName: "",

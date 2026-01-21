@@ -77,11 +77,9 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
 
         // Prevent multiple simultaneous fetches
         if (isFetchingRef.current) {
-            console.log("[SIDEBAR] Already fetching, skipping duplicate request")
             return
         }
 
-        console.log("[SIDEBAR] Fetching documents for page:", page)
 
         if (!skipLoading) {
             setIsLoadingHistory(true)
@@ -112,12 +110,10 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             })
 
             if (!response.ok) {
-                console.error("[SIDEBAR] Failed to fetch documents")
                 return
             }
 
             const data = await response.json()
-            console.log("[SIDEBAR] Documents fetched successfully:", data.documents?.length || 0)
 
             setHistory(data.documents || [])
             setPagination(data.pagination)
@@ -128,7 +124,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             if (documentToOpenRef.current && !openedDocumentRef.current.has(documentToOpenRef.current)) {
                 const docToOpen = data.documents?.find((doc: { id: string | null }) => doc.id === documentToOpenRef.current)
                 if (docToOpen) {
-                    console.log("[SIDEBAR] Opening document from fetched list:", documentToOpenRef.current)
                     openedDocumentRef.current.add(documentToOpenRef.current)
                     await openDocument(docToOpen)
                     // Update currently opened document ID
@@ -137,7 +132,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 }
             }
         } catch (err) {
-            console.error("[SIDEBAR] Fetch error:", err)
         } finally {
             isFetchingRef.current = false
             if (!skipLoading) {
@@ -167,13 +161,13 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 structuredData: fullData.structuredData || fullData.structured_data || doc.structured_data,
                 confidenceScore: fullData.confidenceScore || fullData.confidence_score,
                 healthRecommendations: fullData.healthRecommendations || fullData.health_recommendations,
+                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
                 jobId: fullData.jobId || doc.job_id,
             }
             onHistorySelect(formattedData)
             // Update currently opened document ID when successfully opened
             setCurrentlyOpenedDocId(doc.id)
         } catch (error) {
-            console.error("[LeftSidebar] Error fetching history document:", error)
             onHistorySelect({
                 id: doc.id,
                 fileName: doc.file_name,
@@ -194,7 +188,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
 
     // Start polling for document status updates
     const startPolling = useCallback((docId: string) => {
-        console.log("[SIDEBAR] Starting polling for document:", docId)
 
         setProcessingIds(prev => new Set(prev).add(docId))
 
@@ -206,7 +199,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
 
             // Stop polling after max attempts
             if (pollCount > maxPolls) {
-                console.log(`[SIDEBAR] Polling stopped for ${docId} - max attempts reached`)
                 clearInterval(intervalId)
                 pollingDocumentsRef.current.delete(docId)
 
@@ -224,7 +216,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 })
 
                 if (!response.ok) {
-                    console.log(`[SIDEBAR] Webhook check failed for ${docId} - status: ${response.status}`)
                     return
                 }
 
@@ -252,7 +243,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                     await fetchDocuments(currentPageRef.current, true)
                 }
             } catch (error) {
-                console.error("[SIDEBAR] Polling error:", error)
             }
         }, 2000) // Poll every 2 seconds
 
@@ -267,7 +257,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     // Stop polling when component unmounts
     useEffect(() => {
         return () => {
-            console.log("[SIDEBAR] Clearing all polling intervals on unmount")
             pollingDocumentsRef.current.forEach(({ intervalId }) => {
                 clearInterval(intervalId)
             })
@@ -278,7 +267,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     // Fetch on component mount - only once
     useEffect(() => {
         if (!user) return
-        console.log("[SIDEBAR] Component mounted, fetching initial documents")
         fetchDocuments(1)
         openedDocumentRef.current.clear()
     }, [user])
@@ -288,7 +276,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         if (!isAdmin) return
 
         const timer = setTimeout(() => {
-            console.log("[SIDEBAR] Filter changed, fetching documents")
             fetchDocuments(1)
         }, 500)
 
@@ -298,7 +285,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     // Update current opened document when selectedDocumentId changes from parent
     useEffect(() => {
         if (selectedDocumentId) {
-            console.log("[SIDEBAR] Selected document ID changed from parent:", selectedDocumentId)
             setCurrentlyOpenedDocId(selectedDocumentId)
         }
     }, [selectedDocumentId])
@@ -309,7 +295,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
 
         // Prevent clicking on documents that are still processing
         if (isProcessing) {
-            console.log("[SIDEBAR] Document is still processing, click prevented:", doc.id)
             return
         }
 
@@ -415,7 +400,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 throw new Error(errorData.error || "Upload failed")
             }
             const data = await response.json()
-            console.log("[LeftSidebar] Upload success, ID:", data.id)
             setProgressMessage("Complete!")
             setUploadProgress(100)
             await new Promise((resolve) => setTimeout(resolve, 500))
@@ -452,7 +436,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             // Pass processing document to parent - will show spinner
             onUploadSuccess(processingDocument)
         } catch (error) {
-            console.error("[LeftSidebar] Upload error:", error)
             alert(error instanceof Error ? error.message : "Failed to upload. Please try again.")
             setProgressMessage("")
             setUploadProgress(0)

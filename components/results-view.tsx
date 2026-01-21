@@ -368,7 +368,6 @@ function categorizeFields(fields: Array<any>, structuredData: any = {}) {
         }
         // Skip fields that are already shown in structured data
         if (shouldExcludeField(normalizedField.label, structuredData)) {
-            console.warn("[v0] Skipping duplicate field:", normalizedField.label)
             return
         }
         const labelLower = normalizedField.label.toLowerCase()
