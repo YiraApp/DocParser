@@ -1,0 +1,41 @@
+name: Build and deploy Next.js app to Azure Web App
+ 
+on:
+  push:
+    branches:
+      - Medsenselatestchnages12-01-2025
+  workflow_dispatch:
+ 
+env:
+  APPLICATION_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+  WEBAPP_NAME: "nextdemo"
+  NEXT_PUBLIC_BASE_URL: ${{ secrets.NEXT_PUBLIC_BASE_URL }}
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+ 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+ 
+      - name: Set up Node.js version
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+ 
+      - name: npm install, build, and test
+        run: |
+          npm install --legacy-peer-deps
+          npm run build
+          mv ./build/static ./build/standalone/build
+          mv ./public ./build/standalone
+ 
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: medsenseclient
+          slot-name: Production
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4CD99C0A8E5644A59F1852B46B253D9A }}
+          package: ./build/standalone
