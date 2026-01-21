@@ -3,7 +3,7 @@ name: Build and deploy Next.js app to Azure Web App
 on:
   push:
     branches:
-      - ProdLatest20-01-2026
+      - Medsenselatestchnages12-01-2025
   workflow_dispatch:
  
 env:
