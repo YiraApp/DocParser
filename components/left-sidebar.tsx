@@ -192,10 +192,15 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         setProcessingIds(prev => new Set(prev).add(docId))
 
         let pollCount = 0
-        const maxPolls = 300 // Stop after 10 minutes (300 * 2 seconds)
+        const maxPolls = 300 // Stop after max attempts
+        let pollInterval = 60000 // Start with 1 minute (60000ms)
+        const switchToFastPollTime = 60000 // Switch to fast polling after 1 minute
+        let fastPollingStarted = false
+        let elapsedTime = 0
 
         const intervalId = setInterval(async () => {
             pollCount++
+            elapsedTime += pollInterval
 
             // Stop polling after max attempts
             if (pollCount > maxPolls) {
@@ -241,10 +246,76 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
 
                     // Fetch documents to update the list and trigger opening
                     await fetchDocuments(currentPageRef.current, true)
+                } else if (webhook && webhook.status === 'pending' && !fastPollingStarted && elapsedTime >= switchToFastPollTime) {
+                    // Switch to fast polling (5 seconds) if still pending after 1 minute
+                    console.log(`[SIDEBAR] Switching to fast polling for document ${docId}`)
+                    fastPollingStarted = true
+                    clearInterval(intervalId)
+
+                    // Restart with 5 second interval
+                    pollInterval = 5000
+                    const newIntervalId = setInterval(async () => {
+                        pollCount++
+
+                        // Stop polling after max attempts
+                        if (pollCount > maxPolls) {
+                            clearInterval(newIntervalId)
+                            pollingDocumentsRef.current.delete(docId)
+
+                            setProcessingIds(prev => {
+                                const updated = new Set(prev)
+                                updated.delete(docId)
+                                return updated
+                            })
+                            return
+                        }
+
+                        try {
+                            const response = await fetch(`/api/webhook?job_id=${docId}`, {
+                                credentials: "include",
+                            })
+
+                            if (!response.ok) {
+                                return
+                            }
+
+                            const data = await response.json()
+                            const webhook = data.webhook
+
+                            if (webhook && webhook.status && webhook.status !== 'pending') {
+                                console.log(`[SIDEBAR] Document ${docId} completed with status: ${webhook.status}`)
+
+                                // Stop polling for this document
+                                clearInterval(newIntervalId)
+                                pollingDocumentsRef.current.delete(docId)
+
+                                // Remove from processing set
+                                setProcessingIds(prev => {
+                                    const updated = new Set(prev)
+                                    updated.delete(docId)
+                                    return updated
+                                })
+
+                                // Set the document to open when fetch completes
+                                documentToOpenRef.current = docId
+
+                                // Fetch documents to update the list and trigger opening
+                                await fetchDocuments(currentPageRef.current, true)
+                            }
+                        } catch (error) {
+                        }
+                    }, 5000) // Poll every 5 seconds
+
+                    // Update the stored interval ID
+                    pollingDocumentsRef.current.set(docId, {
+                        docId,
+                        pollCount,
+                        intervalId: newIntervalId,
+                    })
                 }
             } catch (error) {
             }
-        }, 2000) // Poll every 2 seconds
+        }, 60000) // Start polling every 1 minute
 
         // Store the polling info
         pollingDocumentsRef.current.set(docId, {

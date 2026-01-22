@@ -59,7 +59,7 @@ function mapParsedDataToStructured(parsedData: any, fraudDetection: any = null) 
             reportDate: parsedData.encounter_date || null,
         },
         documentSummary: buildDocumentSummary(parsedData),
-        // Add medical history questions
+        // Add medical history questions - stored only once
         medicalHistoryQuestions: parsedData.medical_history_questions || [],
         // Preserve photo comparison data
         photoComparison: parsedData.photo_comparison || null,
@@ -226,15 +226,7 @@ export async function GET(request: NextRequest) {
         const fields = extractFieldsFromParsedData(doc.parsed_data)
         const summary = buildDocumentSummary(doc.parsed_data)
 
-        // **Format response - Include complete structured data with all parsed data fields**
-        const completeStructuredData = {
-            ...structured_data,
-            medicalHistoryQuestions: doc.parsed_data?.medical_history_questions || structured_data.medicalHistoryQuestions || [],
-            photoComparison: doc.parsed_data?.photo_comparison || structured_data.photoComparison || null,
-            fraudDetection: structured_data.fraudDetection || doc.fraud_detection || doc.parsed_data?.fraud_detection || null,
-            rawParsedData: doc.parsed_data || {},
-        }
-
+        // **Format response - Do NOT duplicate data, use structured format only**
         const formattedData = {
             id: doc.job_id || id,
             fileName: doc.file_name || "Untitled Document",
@@ -242,13 +234,13 @@ export async function GET(request: NextRequest) {
             documentType: doc.document_type || "Medical Document",
             fields: fields || [],
             summary: summary || "",
-            structuredData: completeStructuredData,
+            structuredData: structured_data,
             confidenceScore: doc.confidence_score || undefined,
-            fraudDetection: completeStructuredData.fraudDetection,
+            fraudDetection: structured_data.fraudDetection,
         }
 
         console.log("[PARSE-DOCUMENT GET] ✅ Returning formatted data from webhook_responses")
-        console.log("[PARSE-DOCUMENT GET] Medical History Questions Count:", formattedData.structuredData.medicalHistoryQuestions.length)
+        console.log("[PARSE-DOCUMENT GET] Medical History Questions Count:", structured_data.medicalHistoryQuestions.length)
         console.log("[PARSE-DOCUMENT GET] Fraud Detection:", !!formattedData.fraudDetection)
         return NextResponse.json(formattedData)
     } catch (error) {
@@ -330,7 +322,7 @@ export async function POST(request: NextRequest) {
                 document_type: "Medical Report",
                 status: "completed",
                 user_email: "webhook@system.com",
-                // Parsed and structured data
+                // Parsed and structured data - Use clean mapping without duplication
                 parsed_data: enrichedParsedData,
                 structured_data: mapParsedDataToStructured(enrichedParsedData, webhook.fraud_detection),
                 fields: extractFieldsFromParsedData(enrichedParsedData),
@@ -349,6 +341,7 @@ export async function POST(request: NextRequest) {
                 await documentsCollection.insertOne(documentRecord)
                 console.log(`[MIGRATE] ✅ Migrated ${webhook.job_id}`)
                 console.log(`[MIGRATE] 💾 Fraud Detection preserved: ${webhook.fraud_detection ? "Yes" : "No"}`)
+                console.log(`[MIGRATE] 💾 Medical History Questions: ${documentRecord.structured_data.medicalHistoryQuestions?.length || 0}`)
                 migratedCount++
             } catch (err) {
                 console.error(`[MIGRATE] ❌ Error migrating ${webhook.job_id}:`, err)

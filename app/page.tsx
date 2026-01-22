@@ -58,9 +58,16 @@ export default function HomePage() {
     useEffect(() => {
         if (!processingState.isProcessing || !processingState.documentId) return
         let pollAttempts = 0
-        const maxAttempts = 240 // 4 minutes with 1-second intervals
-        const pollInterval = setInterval(async () => {
+        const maxAttempts = 300 // Stop after max attempts
+        let pollInterval = 60000 // Start with 1 minute (60000ms)
+        const switchToFastPollTime = 60000 // Switch to fast polling after 1 minute
+        let fastPollingStarted = false
+        let elapsedTime = 0
+
+        const pollInterval_id = setInterval(async () => {
             pollAttempts++
+            elapsedTime += pollInterval
+
             try {
                 const response = await fetch(`/api/parse-document?id=${processingState.documentId}`)
                 if (response.ok) {
@@ -92,24 +99,96 @@ export default function HomePage() {
                             documentId: "",
                             jobId: "",
                         })
-                        clearInterval(pollInterval)
+                        clearInterval(pollInterval_id)
+                        return
+                    } else if (!fastPollingStarted && elapsedTime >= switchToFastPollTime) {
+                        // Switch to fast polling (5 seconds) if still pending after 1 minute
+                        console.log(`[HOMEPAGE] Switching to fast polling for document ${processingState.documentId}`)
+                        fastPollingStarted = true
+                        clearInterval(pollInterval_id)
+
+                        // Restart with 5 second interval
+                        const fastPollInterval = setInterval(async () => {
+                            pollAttempts++
+
+                            // Stop polling after max attempts
+                            if (pollAttempts > maxAttempts) {
+                                setProcessingState({
+                                    isProcessing: false,
+                                    fileName: "",
+                                    documentId: "",
+                                    jobId: "",
+                                })
+                                clearInterval(fastPollInterval)
+                                return
+                            }
+
+                            try {
+                                const response = await fetch(`/api/parse-document?id=${processingState.documentId}`)
+                                if (response.ok) {
+                                    const fullData = await response.json()
+                                    if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
+                                        const formattedData = {
+                                            id: fullData.id || processingState.documentId,
+                                            fileName: fullData.fileName || processingState.fileName,
+                                            fileUrl: fullData.fileUrl,
+                                            uploadedAt: fullData.uploadedAt || new Date().toISOString(),
+                                            documentType: fullData.documentType || "Medical Document",
+                                            fields: fullData.fields || [],
+                                            summary: fullData.summary || "",
+                                            notes: fullData.notes || [],
+                                            structuredData: fullData.structuredData || {},
+                                            confidenceScore: fullData.confidenceScore,
+                                            healthRecommendations: fullData.healthRecommendations,
+                                            fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
+                                            jobId: processingState.jobId,
+                                        }
+                                        setParsedDocument(formattedData)
+                                        setShowResults(true)
+                                        setProcessingState({
+                                            isProcessing: false,
+                                            fileName: "",
+                                            documentId: "",
+                                            jobId: "",
+                                        })
+                                        clearInterval(fastPollInterval)
+                                        return
+                                    }
+                                }
+                            } catch (err) {
+                            }
+
+                            // Stop polling after max attempts
+                            if (pollAttempts > maxAttempts) {
+                                setProcessingState({
+                                    isProcessing: false,
+                                    fileName: "",
+                                    documentId: "",
+                                    jobId: "",
+                                })
+                                clearInterval(fastPollInterval)
+                            }
+                        }, 5000) // Poll every 5 seconds
+
                         return
                     }
                 }
             } catch (err) {
             }
+
             // Stop polling after max attempts
-            if (pollAttempts >= maxAttempts) {
+            if (pollAttempts > maxAttempts) {
                 setProcessingState({
                     isProcessing: false,
                     fileName: "",
                     documentId: "",
                     jobId: "",
                 })
-                clearInterval(pollInterval)
+                clearInterval(pollInterval_id)
             }
-        }, 1000)
-        return () => clearInterval(pollInterval)
+        }, 60000) // Start polling every 1 minute
+
+        return () => clearInterval(pollInterval_id)
     }, [processingState.isProcessing, processingState.documentId])
     if (isLoading || !user) {
         return (
@@ -204,6 +283,7 @@ export default function HomePage() {
         setCreateRole("user")
         setCreateError("")
         setCreateSuccess(false)
+        setIsCreating(false)
         setShowPassword(false)
         setShowConfirmPassword(false)
     }
