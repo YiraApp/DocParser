@@ -1502,11 +1502,11 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                     {/* Photo Comparison */}
                     {/* Photo Comparison */}
                     {structuredData?.photoComparison && Object.keys(structuredData.photoComparison).length > 0 && (
-                        <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">
+                        <Card className="border border-green-500/20 bg-green-500/5 shadow-sm">
                             <div className="p-4 space-y-4">
                                 <div className="flex items-center gap-2">
-                                    <div className="p-1.5 rounded-md bg-indigo-500/10">
-                                        <Eye className="w-4 h-4 text-indigo-600" />
+                                    <div className="p-1.5 rounded-md bg-green-500/10">
+                                        <Eye className="w-4 h-4 text-green-600" />
                                     </div>
                                     <div className="flex-1">
                                         <h3 className="text-base font-semibold text-foreground">Photo Comparison Analysis</h3>
@@ -1516,7 +1516,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
 
                                 {/* Confidence Level - Numeric */}
                                 {structuredData.photoComparison.confidence !== undefined && structuredData.photoComparison.confidence !== null && (
-                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                    <div className="p-3 rounded-md bg-background border border-green-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Confidence Level</p>
                                         <div className="flex items-center gap-2">
                                             <div className="flex-1 bg-muted rounded-full h-2.5 overflow-hidden">
@@ -1530,7 +1530,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                             bgColor = "bg-green-500";
                                                             widthClass = "w-full";
                                                         } else if (confidence >= 50) {
-                                                            bgColor = "bg-yellow-500";
+                                                            bgColor = "bg-green-500";
                                                             widthClass = "w-2/3";
                                                         }
                                                     }
@@ -1557,7 +1557,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
 
                                 {/* Similarity Score */}
                                 {structuredData.photoComparison.similarity !== undefined && structuredData.photoComparison.similarity !== null && (
-                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                    <div className="p-3 rounded-md bg-background border border-green-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Similarity Score</p>
                                         <div className="flex items-center gap-2">
                                             <div className="flex-1 bg-muted rounded-full h-2.5 overflow-hidden">
@@ -1571,7 +1571,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                             bgColor = "bg-green-500";
                                                             widthClass = "w-full";
                                                         } else if (similarity >= 0.5) {
-                                                            bgColor = "bg-yellow-500";
+                                                            bgColor = "bg-green-500";
                                                             widthClass = "w-2/3";
                                                         }
                                                     }
@@ -1599,12 +1599,12 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                 {/* Image Quality Metrics */}
                                 <div className="grid grid-cols-2 gap-3">
                                     {structuredData.photoComparison.quality_image1 !== undefined && structuredData.photoComparison.quality_image1 !== null && (
-                                        <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                        <div className="p-3 rounded-md bg-background border border-green-500/20 space-y-2">
                                             <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Image 1 Quality</p>
                                             <div className="flex items-center gap-2">
                                                 <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
                                                     <div
-                                                        className="h-full bg-blue-500 transition-all"
+                                                        className="h-full bg-green-500 transition-all"
                                                         style={{
                                                             width: `${Math.min(Math.max(structuredData.photoComparison.quality_image1, 0), 100)}%`
                                                         }}
@@ -1618,12 +1618,12 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     )}
 
                                     {structuredData.photoComparison.quality_image2 !== undefined && structuredData.photoComparison.quality_image2 !== null && (
-                                        <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                        <div className="p-3 rounded-md bg-background border border-green-500/20 space-y-2">
                                             <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Image 2 Quality</p>
                                             <div className="flex items-center gap-2">
                                                 <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
                                                     <div
-                                                        className="h-full bg-blue-500 transition-all"
+                                                        className="h-full bg-green-500 transition-all"
                                                         style={{
                                                             width: `${Math.min(Math.max(structuredData.photoComparison.quality_image2, 0), 100)}%`
                                                         }}
@@ -1639,7 +1639,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
 
                                 {/* Threshold Used */}
                                 {structuredData.photoComparison.threshold_used !== undefined && structuredData.photoComparison.threshold_used !== null && (
-                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                    <div className="p-3 rounded-md bg-background border border-green-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Threshold Used</p>
                                         <p className="text-sm font-semibold text-foreground">
                                             {typeof structuredData.photoComparison.threshold_used === 'number'
@@ -1651,7 +1651,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
 
                                 {/* Reason/Details */}
                                 {structuredData.photoComparison.reason && typeof structuredData.photoComparison.reason === 'string' && structuredData.photoComparison.reason.trim() !== "" && (
-                                    <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                    <div className="p-3 rounded-md bg-background border border-green-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Analysis Details</p>
                                         <p className="text-sm text-foreground leading-relaxed">
                                             {structuredData.photoComparison.reason}
@@ -1662,13 +1662,13 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                 {/* Images Found */}
                                 {structuredData.photoComparison.images_found && Array.isArray(structuredData.photoComparison.images_found) && structuredData.photoComparison.images_found.length > 0 && (
                                     <div className="space-y-2">
-                                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Images Analyzed</p>
+                                        <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Images Analyzed</p>
                                         <div className="grid gap-2">
                                             {structuredData.photoComparison.images_found.map((image: any, index: number) => (
-                                                <div key={index} className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
+                                                <div key={index} className="p-3 rounded-md bg-background border border-green-500/20 space-y-2">
                                                     <div className="flex items-start gap-2">
-                                                        <div className="w-8 h-8 rounded-md bg-indigo-500/10 flex items-center justify-center shrink-0">
-                                                            <span className="text-xs font-semibold text-indigo-600">{image.image_number || index + 1}</span>
+                                                        <div className="w-8 h-8 rounded-md bg-green-500/10 flex items-center justify-center shrink-0">
+                                                            <span className="text-xs font-semibold text-green-600">{image.image_number || index + 1}</span>
                                                         </div>
                                                         <div className="flex-1 space-y-1">
                                                             <p className="text-xs font-medium text-muted-foreground">Image {image.image_number || index + 1}</p>
