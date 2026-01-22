@@ -1522,7 +1522,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             <div className="flex-1 bg-muted rounded-full h-2.5 overflow-hidden">
                                                 {(() => {
                                                     const confidence = structuredData.photoComparison.confidence;
-                                                    let bgColor = "bg-red-500";
+                                                    let bgColor = "bg-green-500";
                                                     let widthClass = "w-1/3";
 
                                                     if (typeof confidence === 'number' && confidence > 0) {
@@ -1563,7 +1563,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             <div className="flex-1 bg-muted rounded-full h-2.5 overflow-hidden">
                                                 {(() => {
                                                     const similarity = structuredData.photoComparison.similarity;
-                                                    let bgColor = "bg-red-500";
+                                                    let bgColor = "bg-green-500";
                                                     let widthClass = "w-1/3";
 
                                                     if (typeof similarity === 'number' && similarity > 0) {

@@ -1,6 +1,6 @@
-﻿// Modified HomePage component
+﻿// Modified HomePage component - SHOW PROCESSING STATE ON REFRESH
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { ResultsSection } from "@/components/results-section"
 import { HomeSearchPanel } from "@/components/home-search-panel"
@@ -16,12 +16,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+
 interface ProcessingState {
     isProcessing: boolean
     fileName: string
     documentId: string
     jobId: string
 }
+
+const PROCESSING_STATE_KEY = "yira_processing_state"
+
 export default function HomePage() {
     const [parsedDocument, setParsedDocument] = useState<any>(null)
     const [showResults, setShowResults] = useState(false)
@@ -46,150 +50,243 @@ export default function HomePage() {
     })
     const [isLoadingDocument, setIsLoadingDocument] = useState(false)
     const [selectedDocumentId, setSelectedDocumentId] = useState<string | undefined>(undefined)
+
+    const pollIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+    const processingStateRef = useRef<ProcessingState>(processingState)
+    const isHydratedRef = useRef(false)
+
     const { user, logout, isAdmin, isLoading } = useAuth()
     const router = useRouter()
+
+    // ✅ Keep ref in sync with state
+    useEffect(() => {
+        processingStateRef.current = processingState
+    }, [processingState])
+
+    // ✅ Initialize from localStorage on mount AND show processing document
+    useEffect(() => {
+        if (isHydratedRef.current || isLoading || !user) return
+
+        isHydratedRef.current = true
+
+        try {
+            const saved = localStorage.getItem(PROCESSING_STATE_KEY)
+            if (saved) {
+                const savedState = JSON.parse(saved) as ProcessingState
+                console.log("[HOMEPAGE] Restoring processing state from localStorage:", savedState)
+
+                if (savedState.isProcessing && savedState.documentId) {
+                    setProcessingState(savedState)
+                    // ✅ NEW: Show the processing state in UI
+                    setShowResults(true)
+                    setIsLoadingDocument(true)
+                } else {
+                    localStorage.removeItem(PROCESSING_STATE_KEY)
+                }
+            }
+        } catch (err) {
+            console.error("[HOMEPAGE] Error loading processing state:", err)
+            localStorage.removeItem(PROCESSING_STATE_KEY)
+        }
+    }, [isLoading, user])
+
     useEffect(() => {
         if (isLoading) return
         if (!user) {
             router.push("/login")
         }
     }, [user, router, isLoading])
-    // Poll for document completion when processing
+
+    // ✅ Persist processing state to localStorage
     useEffect(() => {
-        if (!processingState.isProcessing || !processingState.documentId) return
+        if (processingState.isProcessing && processingState.documentId) {
+            localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(processingState))
+            console.log("[HOMEPAGE] Saved processing state to localStorage:", processingState)
+        } else {
+            localStorage.removeItem(PROCESSING_STATE_KEY)
+        }
+    }, [processingState])
+
+    // ✅ Refactored polling with persistent state
+    const startPolling = (documentId: string, fileName: string, jobId: string) => {
+        const existingInterval = pollIntervalsRef.current.get(documentId)
+        if (existingInterval) {
+            clearInterval(existingInterval)
+        }
+
         let pollAttempts = 0
-        const maxAttempts = 300 // Stop after max attempts
-        let pollInterval = 60000 // Start with 1 minute (60000ms)
-        const switchToFastPollTime = 60000 // Switch to fast polling after 1 minute
+        const maxAttempts = 300
         let fastPollingStarted = false
         let elapsedTime = 0
 
-        const pollInterval_id = setInterval(async () => {
-            pollAttempts++
-            elapsedTime += pollInterval
+        const slowPoll = () => {
+            const intervalId = setInterval(async () => {
+                pollAttempts++
+                elapsedTime += 60000
 
-            try {
-                const response = await fetch(`/api/parse-document?id=${processingState.documentId}`)
-                if (response.ok) {
-                    const fullData = await response.json()
-                    // Check if document has structured data (webhook has processed it)
-                    if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
-                        const formattedData = {
-                            id: fullData.id || processingState.documentId,
-                            fileName: fullData.fileName || processingState.fileName,
-                            fileUrl: fullData.fileUrl,
-                            uploadedAt: fullData.uploadedAt || new Date().toISOString(),
-                            documentType: fullData.documentType || "Medical Document",
-                            fields: fullData.fields || [],
-                            summary: fullData.summary || "",
-                            notes: fullData.notes || [],
-                            structuredData: fullData.structuredData || {},
-                            confidenceScore: fullData.confidenceScore,
-                            healthRecommendations: fullData.healthRecommendations,
-                            fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                            jobId: processingState.jobId,
+                try {
+                    const response = await fetch(`/api/parse-document?id=${documentId}`)
+                    if (response.ok) {
+                        const fullData = await response.json()
+
+                        if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
+                            console.log(`[HOMEPAGE] Document ${documentId} completed`)
+
+                            const formattedData = {
+                                id: fullData.id || documentId,
+                                fileName: fullData.fileName || fileName,
+                                fileUrl: fullData.fileUrl,
+                                uploadedAt: fullData.uploadedAt || new Date().toISOString(),
+                                documentType: fullData.documentType || "Medical Document",
+                                fields: fullData.fields || [],
+                                summary: fullData.summary || "",
+                                notes: fullData.notes || [],
+                                structuredData: fullData.structuredData || {},
+                                confidenceScore: fullData.confidenceScore,
+                                healthRecommendations: fullData.healthRecommendations,
+                                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
+                                jobId: jobId,
+                            }
+
+                            setParsedDocument(formattedData)
+                            setIsLoadingDocument(false)
+                            const clearedState = {
+                                isProcessing: false,
+                                fileName: "",
+                                documentId: "",
+                                jobId: "",
+                            }
+                            setProcessingState(clearedState)
+                            localStorage.removeItem(PROCESSING_STATE_KEY)
+
+                            clearInterval(intervalId)
+                            pollIntervalsRef.current.delete(documentId)
+                            return
+                        } else if (!fastPollingStarted && elapsedTime >= 60000) {
+                            console.log(`[HOMEPAGE] Switching to fast polling for document ${documentId}`)
+                            fastPollingStarted = true
+                            clearInterval(intervalId)
+                            pollIntervalsRef.current.delete(documentId)
+                            fastPoll()
+                            return
                         }
-                        // Update parsed document and show results view
-                        setParsedDocument(formattedData)
-                        setShowResults(true)
-                        // Clear processing state
-                        setProcessingState({
-                            isProcessing: false,
-                            fileName: "",
-                            documentId: "",
-                            jobId: "",
-                        })
-                        clearInterval(pollInterval_id)
-                        return
-                    } else if (!fastPollingStarted && elapsedTime >= switchToFastPollTime) {
-                        // Switch to fast polling (5 seconds) if still pending after 1 minute
-                        console.log(`[HOMEPAGE] Switching to fast polling for document ${processingState.documentId}`)
-                        fastPollingStarted = true
-                        clearInterval(pollInterval_id)
-
-                        // Restart with 5 second interval
-                        const fastPollInterval = setInterval(async () => {
-                            pollAttempts++
-
-                            // Stop polling after max attempts
-                            if (pollAttempts > maxAttempts) {
-                                setProcessingState({
-                                    isProcessing: false,
-                                    fileName: "",
-                                    documentId: "",
-                                    jobId: "",
-                                })
-                                clearInterval(fastPollInterval)
-                                return
-                            }
-
-                            try {
-                                const response = await fetch(`/api/parse-document?id=${processingState.documentId}`)
-                                if (response.ok) {
-                                    const fullData = await response.json()
-                                    if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
-                                        const formattedData = {
-                                            id: fullData.id || processingState.documentId,
-                                            fileName: fullData.fileName || processingState.fileName,
-                                            fileUrl: fullData.fileUrl,
-                                            uploadedAt: fullData.uploadedAt || new Date().toISOString(),
-                                            documentType: fullData.documentType || "Medical Document",
-                                            fields: fullData.fields || [],
-                                            summary: fullData.summary || "",
-                                            notes: fullData.notes || [],
-                                            structuredData: fullData.structuredData || {},
-                                            confidenceScore: fullData.confidenceScore,
-                                            healthRecommendations: fullData.healthRecommendations,
-                                            fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                                            jobId: processingState.jobId,
-                                        }
-                                        setParsedDocument(formattedData)
-                                        setShowResults(true)
-                                        setProcessingState({
-                                            isProcessing: false,
-                                            fileName: "",
-                                            documentId: "",
-                                            jobId: "",
-                                        })
-                                        clearInterval(fastPollInterval)
-                                        return
-                                    }
-                                }
-                            } catch (err) {
-                            }
-
-                            // Stop polling after max attempts
-                            if (pollAttempts > maxAttempts) {
-                                setProcessingState({
-                                    isProcessing: false,
-                                    fileName: "",
-                                    documentId: "",
-                                    jobId: "",
-                                })
-                                clearInterval(fastPollInterval)
-                            }
-                        }, 5000) // Poll every 5 seconds
-
-                        return
                     }
+                } catch (err) {
+                    console.error("[HOMEPAGE] Polling error:", err)
                 }
-            } catch (err) {
-            }
 
-            // Stop polling after max attempts
-            if (pollAttempts > maxAttempts) {
-                setProcessingState({
-                    isProcessing: false,
-                    fileName: "",
-                    documentId: "",
-                    jobId: "",
-                })
-                clearInterval(pollInterval_id)
-            }
-        }, 60000) // Start polling every 1 minute
+                if (pollAttempts > maxAttempts) {
+                    console.log(`[HOMEPAGE] Max polling attempts reached for ${documentId}`)
+                    clearInterval(intervalId)
+                    pollIntervalsRef.current.delete(documentId)
+                    const clearedState = {
+                        isProcessing: false,
+                        fileName: "",
+                        documentId: "",
+                        jobId: "",
+                    }
+                    setProcessingState(clearedState)
+                    localStorage.removeItem(PROCESSING_STATE_KEY)
+                }
+            }, 60000)
 
-        return () => clearInterval(pollInterval_id)
+            pollIntervalsRef.current.set(documentId, intervalId)
+        }
+
+        const fastPoll = () => {
+            const intervalId = setInterval(async () => {
+                pollAttempts++
+
+                try {
+                    const response = await fetch(`/api/parse-document?id=${documentId}`)
+                    if (response.ok) {
+                        const fullData = await response.json()
+
+                        if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
+                            console.log(`[HOMEPAGE] Document ${documentId} completed (fast poll)`)
+
+                            const formattedData = {
+                                id: fullData.id || documentId,
+                                fileName: fullData.fileName || fileName,
+                                fileUrl: fullData.fileUrl,
+                                uploadedAt: fullData.uploadedAt || new Date().toISOString(),
+                                documentType: fullData.documentType || "Medical Document",
+                                fields: fullData.fields || [],
+                                summary: fullData.summary || "",
+                                notes: fullData.notes || [],
+                                structuredData: fullData.structuredData || {},
+                                confidenceScore: fullData.confidenceScore,
+                                healthRecommendations: fullData.healthRecommendations,
+                                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
+                                jobId: jobId,
+                            }
+
+                            setParsedDocument(formattedData)
+                            setIsLoadingDocument(false)
+                            const clearedState = {
+                                isProcessing: false,
+                                fileName: "",
+                                documentId: "",
+                                jobId: "",
+                            }
+                            setProcessingState(clearedState)
+                            localStorage.removeItem(PROCESSING_STATE_KEY)
+
+                            clearInterval(intervalId)
+                            pollIntervalsRef.current.delete(documentId)
+                            return
+                        }
+                    }
+                } catch (err) {
+                    console.error("[HOMEPAGE] Fast polling error:", err)
+                }
+
+                if (pollAttempts > maxAttempts) {
+                    console.log(`[HOMEPAGE] Max fast polling attempts reached for ${documentId}`)
+                    clearInterval(intervalId)
+                    pollIntervalsRef.current.delete(documentId)
+                    const clearedState = {
+                        isProcessing: false,
+                        fileName: "",
+                        documentId: "",
+                        jobId: "",
+                    }
+                    setProcessingState(clearedState)
+                    localStorage.removeItem(PROCESSING_STATE_KEY)
+                }
+            }, 5000)
+
+            pollIntervalsRef.current.set(documentId, intervalId)
+        }
+
+        slowPoll()
+    }
+
+    // ✅ Simplified effect: only start polling when processing starts
+    useEffect(() => {
+        if (!processingState.isProcessing || !processingState.documentId) return
+
+        startPolling(processingState.documentId, processingState.fileName, processingState.jobId)
+
+        return () => {
+            const interval = pollIntervalsRef.current.get(processingState.documentId)
+            if (interval) {
+                clearInterval(interval)
+                pollIntervalsRef.current.delete(processingState.documentId)
+            }
+        }
     }, [processingState.isProcessing, processingState.documentId])
+
+    // ✅ Cleanup all intervals on component unmount
+    useEffect(() => {
+        return () => {
+            pollIntervalsRef.current.forEach((interval) => {
+                clearInterval(interval)
+            })
+            pollIntervalsRef.current.clear()
+        }
+    }, [])
+
     if (isLoading || !user) {
         return (
             <div className="h-screen flex items-center justify-center bg-background">
@@ -200,8 +297,8 @@ export default function HomePage() {
             </div>
         )
     }
+
     const handleUploadSuccess = (document: any) => {
-        // If document is still processing, track it in sidebar
         if (document.status === "processing") {
             setProcessingState({
                 isProcessing: true,
@@ -210,23 +307,25 @@ export default function HomePage() {
                 jobId: document.jobId,
             })
         } else {
-            // Otherwise show results immediately
             setParsedDocument(document)
             setShowResults(true)
             setShowSearch(false)
         }
     }
+
     const handleHistoryClickStart = (docId: string) => {
         setSelectedDocumentId(docId)
         setIsLoadingDocument(true)
         setShowResults(true)
         setShowSearch(false)
-        setParsedDocument(null) // Clear previous data
+        setParsedDocument(null)
     }
+
     const handleHistorySelect = (document: any) => {
         setParsedDocument(document)
         setIsLoadingDocument(false)
     }
+
     const handleSearchDocumentSelect = (document: any) => {
         const transformedDocument = {
             id: document.id,
@@ -245,6 +344,7 @@ export default function HomePage() {
         setShowResults(true)
         setShowSearch(false)
     }
+
     const handleNewUpload = () => {
         setParsedDocument(null)
         setShowResults(false)
@@ -256,6 +356,7 @@ export default function HomePage() {
             jobId: "",
         })
     }
+
     const handleCloseResults = () => {
         setParsedDocument(null)
         setShowResults(false)
@@ -267,12 +368,15 @@ export default function HomePage() {
             jobId: "",
         })
     }
+
     const handleSearchToggle = () => {
         setShowSearch(prev => !prev)
     }
+
     const handleLogout = () => {
         logout()
     }
+
     const handleCreateAccountClick = () => {
         setShowCreateAccount(true)
         setCreateEmail("")
@@ -287,6 +391,7 @@ export default function HomePage() {
         setShowPassword(false)
         setShowConfirmPassword(false)
     }
+
     const handleCreateAccountSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setCreateError("")
@@ -347,6 +452,7 @@ export default function HomePage() {
             setIsCreating(false)
         }
     }
+
     return (
         <div className="h-screen flex flex-col overflow-hidden bg-background">
             {/* HEADER */}
@@ -411,7 +517,6 @@ export default function HomePage() {
                                     <UserPlus className="w-4 h-4" />
                                     <span className="hidden sm:inline">Create Account</span>
                                 </Button>
-
                             )}
                             <Button
                                 variant="ghost"
@@ -422,7 +527,6 @@ export default function HomePage() {
                                 <LogOut className="w-4 h-4" />
                                 <span className="hidden sm:inline">Logout</span>
                             </Button>
-
                         </div>
                     </div>
                 </div>
@@ -432,7 +536,7 @@ export default function HomePage() {
                 <LeftSidebar
                     onUploadSuccess={handleUploadSuccess}
                     onHistorySelect={handleHistorySelect}
-                    onHistoryClickStart={handleHistoryClickStart} // Pass new prop
+                    onHistoryClickStart={handleHistoryClickStart}
                     processingDocumentId={processingState.documentId}
                     selectedDocumentId={selectedDocumentId}
                 />
@@ -441,7 +545,9 @@ export default function HomePage() {
                         <div className="flex items-center justify-center min-h-full p-6">
                             <div className="text-center space-y-4">
                                 <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-                                <p className="text-muted-foreground">Loading document...</p>
+                                <p className="text-muted-foreground">
+                                    {processingState.isProcessing ? `Processing ${processingState.fileName}...` : "Loading document..."}
+                                </p>
                             </div>
                         </div>
                     ) : showResults ? (
