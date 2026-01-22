@@ -1500,6 +1500,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </Card>
                     )}
                     {/* Photo Comparison */}
+                    {/* Photo Comparison */}
                     {structuredData?.photoComparison && Object.keys(structuredData.photoComparison).length > 0 && (
                         <Card className="border border-indigo-500/20 bg-indigo-500/5 shadow-sm">
                             <div className="p-4 space-y-4">
@@ -1514,7 +1515,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                 </div>
 
                                 {/* Confidence Level - Numeric */}
-                                {structuredData.photoComparison.confidence !== undefined && (
+                                {structuredData.photoComparison.confidence !== undefined && structuredData.photoComparison.confidence !== null && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Confidence Level</p>
                                         <div className="flex items-center gap-2">
@@ -1524,7 +1525,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                     let bgColor = "bg-red-500";
                                                     let widthClass = "w-1/3";
 
-                                                    if (typeof confidence === 'number') {
+                                                    if (typeof confidence === 'number' && confidence > 0) {
                                                         if (confidence >= 80) {
                                                             bgColor = "bg-green-500";
                                                             widthClass = "w-full";
@@ -1555,7 +1556,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                 )}
 
                                 {/* Similarity Score */}
-                                {structuredData.photoComparison.similarity !== undefined && (
+                                {structuredData.photoComparison.similarity !== undefined && structuredData.photoComparison.similarity !== null && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Similarity Score</p>
                                         <div className="flex items-center gap-2">
@@ -1565,7 +1566,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                     let bgColor = "bg-red-500";
                                                     let widthClass = "w-1/3";
 
-                                                    if (typeof similarity === 'number') {
+                                                    if (typeof similarity === 'number' && similarity > 0) {
                                                         if (similarity >= 0.8) {
                                                             bgColor = "bg-green-500";
                                                             widthClass = "w-full";
@@ -1597,7 +1598,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
 
                                 {/* Image Quality Metrics */}
                                 <div className="grid grid-cols-2 gap-3">
-                                    {structuredData.photoComparison.quality_image1 !== undefined && (
+                                    {structuredData.photoComparison.quality_image1 !== undefined && structuredData.photoComparison.quality_image1 !== null && (
                                         <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                             <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Image 1 Quality</p>
                                             <div className="flex items-center gap-2">
@@ -1605,20 +1606,18 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                     <div
                                                         className="h-full bg-blue-500 transition-all"
                                                         style={{
-                                                            width: `${Math.min(structuredData.photoComparison.quality_image1, 100)}%`
+                                                            width: `${Math.min(Math.max(structuredData.photoComparison.quality_image1, 0), 100)}%`
                                                         }}
                                                     />
                                                 </div>
                                                 <span className="text-sm font-semibold text-foreground min-w-[45px]">
                                                     {structuredData.photoComparison.quality_image1}%
-
-
                                                 </span>
                                             </div>
                                         </div>
                                     )}
 
-                                    {structuredData.photoComparison.quality_image2 !== undefined && (
+                                    {structuredData.photoComparison.quality_image2 !== undefined && structuredData.photoComparison.quality_image2 !== null && (
                                         <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                             <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Image 2 Quality</p>
                                             <div className="flex items-center gap-2">
@@ -1626,14 +1625,12 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                     <div
                                                         className="h-full bg-blue-500 transition-all"
                                                         style={{
-                                                            width: `${Math.min(structuredData.photoComparison.quality_image2, 100)}%`
+                                                            width: `${Math.min(Math.max(structuredData.photoComparison.quality_image2, 0), 100)}%`
                                                         }}
                                                     />
                                                 </div>
                                                 <span className="text-sm font-semibold text-foreground min-w-[45px]">
                                                     {structuredData.photoComparison.quality_image2}%
-
-
                                                 </span>
                                             </div>
                                         </div>
@@ -1641,7 +1638,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                 </div>
 
                                 {/* Threshold Used */}
-                                {structuredData.photoComparison.threshold_used !== undefined && (
+                                {structuredData.photoComparison.threshold_used !== undefined && structuredData.photoComparison.threshold_used !== null && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Threshold Used</p>
                                         <p className="text-sm font-semibold text-foreground">
@@ -1653,7 +1650,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                 )}
 
                                 {/* Reason/Details */}
-                                {structuredData.photoComparison.reason && structuredData.photoComparison.reason.trim() !== "" && (
+                                {structuredData.photoComparison.reason && typeof structuredData.photoComparison.reason === 'string' && structuredData.photoComparison.reason.trim() !== "" && (
                                     <div className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Analysis Details</p>
                                         <p className="text-sm text-foreground leading-relaxed">
@@ -1671,12 +1668,12 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                 <div key={index} className="p-3 rounded-md bg-background border border-indigo-500/20 space-y-2">
                                                     <div className="flex items-start gap-2">
                                                         <div className="w-8 h-8 rounded-md bg-indigo-500/10 flex items-center justify-center shrink-0">
-                                                            <span className="text-xs font-semibold text-indigo-600">{image.image_number}</span>
+                                                            <span className="text-xs font-semibold text-indigo-600">{image.image_number || index + 1}</span>
                                                         </div>
                                                         <div className="flex-1 space-y-1">
-                                                            <p className="text-xs font-medium text-muted-foreground">Image {image.image_number}</p>
+                                                            <p className="text-xs font-medium text-muted-foreground">Image {image.image_number || index + 1}</p>
                                                             <p className="text-sm text-foreground leading-relaxed">
-                                                                {image.description}
+                                                                {image.description || "No description available"}
                                                             </p>
                                                             {image.source_file && (
                                                                 <p className="text-xs text-muted-foreground">
@@ -1688,7 +1685,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                 </div>
                                             ))}
 
-                                            {structuredData.photoComparison.images_found.length > 3 && ( // Show "See more" button if there are more than 3 images
+                                            {structuredData.photoComparison.images_found.length > 3 && (
                                                 <div className="text-center">
                                                     <Button
                                                         variant="link"
@@ -1714,6 +1711,16 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Empty State */}
+                                {(!structuredData.photoComparison.confidence && !structuredData.photoComparison.similarity &&
+                                    !structuredData.photoComparison.images_found?.length) && (
+                                        <div className="p-4 text-center rounded-md bg-yellow-50 border border-yellow-200">
+                                            <p className="text-sm text-yellow-800">
+                                                No photo comparison data available. Ensure PDF contains clear facial images.
+                                            </p>
+                                        </div>
+                                    )}
                             </div>
                         </Card>
                     )}

@@ -72,6 +72,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     const pollingDocumentsRef = useRef<Map<string, PollingDocument>>(new Map())
 
     // Fetch documents with pagination
+    // Fetch documents with pagination
     const fetchDocuments = useCallback(async (page: number = 1, skipLoading: boolean = false) => {
         if (!user) return
 
@@ -79,7 +80,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         if (isFetchingRef.current) {
             return
         }
-
 
         if (!skipLoading) {
             setIsLoadingHistory(true)
@@ -115,14 +115,21 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
 
             const data = await response.json()
 
-            setHistory(data.documents || [])
+            // Filter out documents that have completed processing
+            const filteredDocuments = (data.documents || []).map((doc: HistoryDocument) => ({
+                ...doc,
+                // Clear pending status if it exists
+                status: doc.status === 'pending' && processingIds.has(doc.id) ? 'pending' : (doc.status || undefined)
+            }))
+
+            setHistory(filteredDocuments)
             setPagination(data.pagination)
             setCurrentPage(page)
             currentPageRef.current = page
 
             // If there's a document to open and we haven't opened it yet, open it now
             if (documentToOpenRef.current && !openedDocumentRef.current.has(documentToOpenRef.current)) {
-                const docToOpen = data.documents?.find((doc: { id: string | null }) => doc.id === documentToOpenRef.current)
+                const docToOpen = filteredDocuments?.find((doc: { id: string | null }) => doc.id === documentToOpenRef.current)
                 if (docToOpen) {
                     openedDocumentRef.current.add(documentToOpenRef.current)
                     await openDocument(docToOpen)
@@ -138,53 +145,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 setIsLoadingHistory(false)
             }
         }
-    }, [user, isAdmin, filterQuery, filterType])
-
-    // Open document in main panel
-    const openDocument = useCallback(async (doc: HistoryDocument) => {
-        if (!onHistorySelect) return
-        try {
-            const response = await fetch(`/api/parse-document?id=${doc.id}`)
-            if (!response.ok) {
-                throw new Error("Failed to fetch document details")
-            }
-            const fullData = await response.json()
-            const formattedData = {
-                id: fullData.id || doc.id,
-                fileName: fullData.fileName || fullData.file_name || doc.file_name,
-                fileUrl: fullData.fileUrl || fullData.file_url,
-                uploadedAt: fullData.uploadedAt || fullData.created_at || doc.created_at,
-                documentType: fullData.documentType || fullData.document_type || "Medical Document",
-                fields: fullData.fields || [],
-                summary: fullData.summary || "",
-                notes: fullData.notes || [],
-                structuredData: fullData.structuredData || fullData.structured_data || doc.structured_data,
-                confidenceScore: fullData.confidenceScore || fullData.confidence_score,
-                healthRecommendations: fullData.healthRecommendations || fullData.health_recommendations,
-                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                jobId: fullData.jobId || doc.job_id,
-            }
-            onHistorySelect(formattedData)
-            // Update currently opened document ID when successfully opened
-            setCurrentlyOpenedDocId(doc.id)
-        } catch (error) {
-            onHistorySelect({
-                id: doc.id,
-                fileName: doc.file_name,
-                structuredData: doc.structured_data,
-                uploadedAt: doc.created_at,
-                documentType: "Medical Document",
-                fields: [],
-                summary: "",
-                notes: [],
-                confidenceScore: undefined,
-                healthRecommendations: undefined,
-                jobId: doc.job_id,
-            })
-            // Update currently opened document ID even on error
-            setCurrentlyOpenedDocId(doc.id)
-        }
-    }, [onHistorySelect])
+    }, [user, isAdmin, filterQuery, filterType, processingIds])
 
     // Start polling for document status updates
     const startPolling = useCallback((docId: string) => {
@@ -241,6 +202,11 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                         return updated
                     })
 
+                    // Update history to clear pending status for this document
+                    setHistory(prev => prev.map(doc =>
+                        doc.id === docId ? { ...doc, status: undefined } : doc
+                    ))
+
                     // Set the document to open when fetch completes
                     documentToOpenRef.current = docId
 
@@ -296,6 +262,11 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                     return updated
                                 })
 
+                                // Update history to clear pending status for this document
+                                setHistory(prev => prev.map(doc =>
+                                    doc.id === docId ? { ...doc, status: undefined } : doc
+                                ))
+
                                 // Set the document to open when fetch completes
                                 documentToOpenRef.current = docId
 
@@ -324,6 +295,53 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             intervalId,
         })
     }, [fetchDocuments])
+    // Open document in main panel
+    const openDocument = useCallback(async (doc: HistoryDocument) => {
+        if (!onHistorySelect) return
+        try {
+            const response = await fetch(`/api/parse-document?id=${doc.id}`)
+            if (!response.ok) {
+                throw new Error("Failed to fetch document details")
+            }
+            const fullData = await response.json()
+            const formattedData = {
+                id: fullData.id || doc.id,
+                fileName: fullData.fileName || fullData.file_name || doc.file_name,
+                fileUrl: fullData.fileUrl || fullData.file_url,
+                uploadedAt: fullData.uploadedAt || fullData.created_at || doc.created_at,
+                documentType: fullData.documentType || fullData.document_type || "Medical Document",
+                fields: fullData.fields || [],
+                summary: fullData.summary || "",
+                notes: fullData.notes || [],
+                structuredData: fullData.structuredData || fullData.structured_data || doc.structured_data,
+                confidenceScore: fullData.confidenceScore || fullData.confidence_score,
+                healthRecommendations: fullData.healthRecommendations || fullData.health_recommendations,
+                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
+                jobId: fullData.jobId || doc.job_id,
+            }
+            onHistorySelect(formattedData)
+            // Update currently opened document ID when successfully opened
+            setCurrentlyOpenedDocId(doc.id)
+        } catch (error) {
+            onHistorySelect({
+                id: doc.id,
+                fileName: doc.file_name,
+                structuredData: doc.structured_data,
+                uploadedAt: doc.created_at,
+                documentType: "Medical Document",
+                fields: [],
+                summary: "",
+                notes: [],
+                confidenceScore: undefined,
+                healthRecommendations: undefined,
+                jobId: doc.job_id,
+            })
+            // Update currently opened document ID even on error
+            setCurrentlyOpenedDocId(doc.id)
+        }
+    }, [onHistorySelect])
+
+    // Start polling for document status updates
 
     // Stop polling when component unmounts
     useEffect(() => {
