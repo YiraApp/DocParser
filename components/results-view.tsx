@@ -2186,7 +2186,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                                                         }}
                                                                                         className="text-sm font-medium text-primary"
                                                                                     >
-                                                                                        See more matches ({value.length - 3} more)
                                                                                     </Button>
                                                                                 </div>
                                                                             )}
