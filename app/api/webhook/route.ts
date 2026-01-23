@@ -193,6 +193,34 @@ function extractFieldsFromParsedData(parsedData: any) {
     return fields
 }
 
+// ✅ UPDATED: Helper to emit WebSocket event
+async function emitDocumentStatusUpdate(
+    documentId: string,
+    status: "pending" | "processing" | "completed" | "failed",
+    error?: string,
+) {
+    try {
+        const statusPort = process.env.STATUS_UPDATE_PORT || 3002;
+        const statusUpdateUrl = process.env.SOCKET_STATUS_URL || `http://localhost:${statusPort}/emit-status`;
+        
+        console.log(`[WEBHOOK] 📡 Sending status update to ${statusUpdateUrl}: ${documentId} -> ${status}`);
+
+        const response = await fetch(statusUpdateUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ documentId, status, error }),
+        });
+
+        if (!response.ok) {
+            console.warn(`[WEBHOOK] ⚠️ Status update failed: ${response.status}`);
+        } else {
+            console.log(`[WEBHOOK] ✅ Status update sent successfully`);
+        }
+    } catch (err) {
+        console.error("[WEBHOOK] Error emitting status update:", err);
+    }
+}
+
 export async function POST(request: NextRequest) {
     console.log("[WEBHOOK POST] ===== WEBHOOK RECEIVED =====")
 
@@ -204,7 +232,6 @@ export async function POST(request: NextRequest) {
             status: payload.status,
             has_parsed_data: !!payload.parsed_data,
             has_fraud_detection: !!payload.fraud_detection,
-            has_fraud_detection_in_parsed: !!payload.parsed_data?.fraud_detection,
         })
 
         if (!payload.job_id) {
@@ -220,27 +247,26 @@ export async function POST(request: NextRequest) {
         const documentsCollection = db.collection("documents")
         const jobCollection = db.collection("job_ids")
 
-        // **FETCH USER EMAIL AND FILENAME FROM job_ids**
         let userEmail = "anonymous"
-        let actualFileName = `Document_${payload.job_id}` // fallback
+        let actualFileName = `Document_${payload.job_id}`
+        let documentId: string | null = null
+
         const jobRecord = await jobCollection.findOne({ job_id: payload.job_id })
         if (jobRecord) {
             userEmail = jobRecord.user_email || "anonymous"
-            actualFileName = jobRecord.file_name || actualFileName // Use actual filename
-            console.log("[WEBHOOK POST] Found user_email from job record:", userEmail)
-            console.log("[WEBHOOK POST] Found file_name from job record:", actualFileName)
+            actualFileName = jobRecord.file_name || actualFileName
+            documentId = jobRecord.document_id
+            console.log("[WEBHOOK POST] Found job record for user:", userEmail)
         } else {
-            console.warn("[WEBHOOK POST] ⚠️ Job record not found, using defaults")
+            console.warn("[WEBHOOK POST] ⚠️ Job record not found")
         }
 
-        // ✅ Extract fraud_detection with explicit null check
-        const fraudDetection = payload.fraud_detection !== undefined 
-            ? payload.fraud_detection 
+        const fraudDetection = payload.fraud_detection !== undefined
+            ? payload.fraud_detection
             : (payload.parsed_data?.fraud_detection || null)
 
-        console.log("[WEBHOOK POST] Extracted fraud_detection:", fraudDetection)
+        console.log("[WEBHOOK POST] Extracted fraud_detection:", !!fraudDetection)
 
-        // Store in webhook_responses
         const webhookRecord = {
             job_id: payload.job_id,
             report_id: payload.report_id,
@@ -250,19 +276,24 @@ export async function POST(request: NextRequest) {
             timestamp: payload.timestamp,
             received_at: new Date(),
             processed: false,
-            document_id: null,
+            document_id: documentId,
             parsed_data: payload.parsed_data || null,
             fraud_detection: fraudDetection,
         }
 
         const webhookResult = await webhookCollection.insertOne(webhookRecord)
-        console.log("[WEBHOOK POST] ✅ Stored in webhook_responses with fraud_detection:", !!fraudDetection)
+        console.log("[WEBHOOK POST] ✅ Stored webhook response")
 
-        // **SAVE TO DOCUMENTS COLLECTION ONLY WHEN WEBHOOK HAS PARSED DATA (i.e., processing is complete)**
+        // ✅ NEW: Emit processing status update
+        if (documentId) {
+            console.log(`[WEBHOOK POST] Emitting processing status for ${documentId}`)
+            await emitDocumentStatusUpdate(documentId, "processing")
+        }
+
+        // **SAVE TO DOCUMENTS COLLECTION WHEN WEBHOOK HAS PARSED DATA**
         if (payload.parsed_data && Object.keys(payload.parsed_data).length > 0) {
-            console.log("[WEBHOOK POST] 💾 Saving to documents collection with user_email:", userEmail)
+            console.log("[WEBHOOK POST] 💾 Saving to documents collection")
 
-            // ✅ Merge fraud_detection into parsed_data
             const enrichedParsedData = {
                 ...payload.parsed_data,
                 fraud_detection: fraudDetection,
@@ -271,67 +302,61 @@ export async function POST(request: NextRequest) {
             const documentRecord = {
                 job_id: payload.job_id,
                 report_id: payload.report_id || payload.job_id,
-                file_name: actualFileName, // Use actual filename instead of generating
+                file_name: actualFileName,
                 file_type: "medical_report",
                 file_size: 0,
                 document_type: "Medical Report",
-                status: payload.status || "completed",
+                status: "completed",
                 user_email: userEmail,
-
-                // ✅ Use enriched parsed_data with fraud_detection included
                 parsed_data: enrichedParsedData,
-                // ✅ Pass fraudDetection as second parameter to mapParsedDataToStructured
                 structured_data: mapParsedDataToStructured(enrichedParsedData, fraudDetection),
                 fields: extractFieldsFromParsedData(enrichedParsedData),
-
-                // ✅ Add fraud_detection field here
                 fraud_detection: fraudDetection,
-
-                // Metadata
                 summary: buildDocumentSummary(enrichedParsedData),
                 notes: [],
                 confidence_score: 85,
                 error_message: null,
-
-                // Timestamps
                 created_at: new Date(),
                 updated_at: new Date(),
             }
 
             try {
                 const docResult = await documentsCollection.insertOne(documentRecord)
-                console.log("[WEBHOOK POST] ✅ Document saved:", docResult.insertedId, "for user:", userEmail)
-                console.log("[WEBHOOK POST] 💾 Fraud detection in structured_data:", documentRecord.structured_data.fraudDetection)
+                documentId = docResult.insertedId.toString()
+                console.log("[WEBHOOK POST] ✅ Document saved:", documentId)
 
-                // Update webhook with document_id
+                // ✅ NEW: Emit completion status
+                await emitDocumentStatusUpdate(documentId, "completed")
+
+                // Update webhook
                 await webhookCollection.updateOne(
                     { _id: webhookResult.insertedId },
                     {
                         $set: {
-                            document_id: docResult.insertedId.toString(),
+                            document_id: documentId,
                             processed: true,
                         }
                     }
                 )
-                console.log("[WEBHOOK POST] ✅ Webhook marked as processed")
 
-                // **Update job_ids record with document_id and preserve filename**
+                // Update job record
                 await jobCollection.updateOne(
                     { job_id: payload.job_id },
                     {
                         $set: {
-                            status: payload.status || "completed",
-                            document_id: docResult.insertedId.toString(),
+                            status: "completed",
+                            document_id: documentId,
                             parsed_data: enrichedParsedData,
                             fraud_detection: fraudDetection,
                             updated_at: new Date(),
                         }
                     }
                 )
-                console.log("[WEBHOOK POST] ✅ Job ID record updated with document_id and fraud_detection")
+                console.log("[WEBHOOK POST] ✅ Job record updated")
 
             } catch (docError) {
-                console.error("[WEBHOOK POST] ❌ Error saving to documents:", docError)
+                console.error("[WEBHOOK POST] ❌ Error saving document:", docError)
+                await emitDocumentStatusUpdate(documentId || "", "failed", "Database error")
             }
         }
 
@@ -343,8 +368,8 @@ export async function POST(request: NextRequest) {
                 success: true,
                 message: "Webhook processed successfully",
                 job_id: payload.job_id,
-                report_id: payload.report_id,
-                status: payload.status,
+                document_id: documentId,
+                status: "completed",
                 timestamp: new Date().toISOString(),
             },
             { status: 200 }

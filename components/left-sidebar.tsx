@@ -1,4 +1,4 @@
-﻿// Modified LeftSidebar component - COMPLETE FIX
+﻿// Modified LeftSidebar component - WebSocket instead of polling
 "use client"
 import type React from "react"
 import { useState, useCallback, useEffect, useRef } from "react"
@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { useDocumentStatus } from "@/hooks/useDocumentStatus"
 
 interface LeftSidebarProps {
     onUploadSuccess: (document: any) => void
@@ -42,12 +43,6 @@ interface PaginationInfo {
     hasPrevPage: boolean
 }
 
-interface PollingDocument {
-    docId: string
-    pollCount: number
-    intervalId: NodeJS.Timeout
-}
-
 export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickStart, processingDocumentId, selectedDocumentId }: LeftSidebarProps) {
     const [file, setFile] = useState<File | null>(null)
     const [isDragging, setIsDragging] = useState(false)
@@ -61,7 +56,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     const [filterType, setFilterType] = useState<"name" | "email" | "user">("name")
     const [currentPage, setCurrentPage] = useState(1)
     const [pagination, setPagination] = useState<PaginationInfo | null>(null)
-    const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
     const [currentlyOpenedDocId, setCurrentlyOpenedDocId] = useState<string | null>(null)
     const { user, incrementUploadCount, isAdmin } = useAuth()
     const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
@@ -69,30 +63,17 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     const isFetchingRef = useRef(false)
     const documentToOpenRef = useRef<string | null>(null)
     const openedDocumentRef = useRef<Set<string>>(new Set())
-    const pollingDocumentsRef = useRef<Map<string, PollingDocument>>(new Map())
     const isInitializedRef = useRef(false)
 
-    // ✅ NEW: Check document status from API (NOT from webhook)
-    const checkDocumentCompletion = useCallback(async (docId: string): Promise<boolean> => {
-        try {
-            const response = await fetch(`/api/parse-document?id=${docId}`)
-            if (response.ok) {
-                const fullData = await response.json()
-                // Document is completed if it has structured data
-                return !!(fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0)
-            }
-        } catch (err) {
-            console.error("[SIDEBAR] Error checking document completion:", err)
-        }
-        return false
-    }, [])
+    // ✅ WebSocket integration
+    const { socket, isConnected, documentStatus, subscribeToDocument, unsubscribeFromDocument } = useDocumentStatus()
 
     // Fetch documents with pagination
     const fetchDocuments = useCallback(async (page: number = 1, skipLoading: boolean = false) => {
         if (!user) return
 
-        // Prevent multiple simultaneous fetches
         if (isFetchingRef.current) {
+            console.log(`[SIDEBAR] Fetch already in progress, skipping duplicate request`)
             return
         }
 
@@ -107,7 +88,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 limit: "5",
             })
 
-            // Only add filters for admins
             if (isAdmin) {
                 if (filterQuery.trim()) {
                     if (filterType === "email") {
@@ -120,22 +100,35 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 }
             }
 
+            console.log(`[SIDEBAR] Fetching documents for page ${page}`)
             const response = await fetch(`/api/recent-documents?${params}`, {
                 credentials: "include",
             })
 
             if (!response.ok) {
+                console.error(`[SIDEBAR] Failed to fetch documents: ${response.status}`)
                 return
             }
 
             const data = await response.json()
 
-            // ✅ FIXED: Don't rely on local processingIds - check actual document status
+            // ✅ FIXED: Check WebSocket status first, then DB status
             const filteredDocuments = (data.documents || []).map((doc: HistoryDocument) => {
-                // If document has pending status in DB, mark as pending
-                if (doc.status === 'pending') {
-                    return { ...doc, status: 'pending' }
+                const wsStatus = documentStatus.get(doc.id)
+                const isProcessing = wsStatus && wsStatus.status === "processing"
+                
+                // If WebSocket says processing, override DB status
+                if (isProcessing) {
+                    console.log(`[SIDEBAR] Document ${doc.id} marked as processing (WebSocket override)`)
+                    return { ...doc, status: "processing" }
                 }
+                
+                // Otherwise use DB status
+                if (doc.status === 'processing') {
+                    console.log(`[SIDEBAR] Document ${doc.id} marked as processing (DB status)`)
+                    return { ...doc, status: 'processing' }
+                }
+                
                 return { ...doc, status: undefined }
             })
 
@@ -144,10 +137,13 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             setCurrentPage(page)
             currentPageRef.current = page
 
+            console.log(`[SIDEBAR] ✅ Loaded ${filteredDocuments.length} documents from page ${page}`)
+
             // If there's a document to open and we haven't opened it yet, open it now
             if (documentToOpenRef.current && !openedDocumentRef.current.has(documentToOpenRef.current)) {
                 const docToOpen = filteredDocuments?.find((doc: { id: string | null }) => doc.id === documentToOpenRef.current)
                 if (docToOpen) {
+                    console.log(`[SIDEBAR] Opening document: ${documentToOpenRef.current}`)
                     openedDocumentRef.current.add(documentToOpenRef.current)
                     await openDocument(docToOpen)
                     setCurrentlyOpenedDocId(documentToOpenRef.current)
@@ -155,129 +151,98 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 }
             }
         } catch (err) {
+            console.error(`[SIDEBAR] Error fetching documents:`, err)
         } finally {
             isFetchingRef.current = false
             if (!skipLoading) {
                 setIsLoadingHistory(false)
             }
         }
-    }, [user, isAdmin, filterQuery, filterType])
+    }, [user, isAdmin, filterQuery, filterType, documentStatus])
 
-    // ✅ IMPROVED: Start polling with status verification
-    const startPolling = useCallback((docId: string) => {
-        setProcessingIds(prev => new Set(prev).add(docId))
+    // ✅ NEW: Initialize WebSocket subscriptions for processing documents
+    useEffect(() => {
+        if (!user || isInitializedRef.current || !isConnected) return
 
-        let pollCount = 0
-        const maxPolls = 300
-        let pollInterval = 60000
-        const switchToFastPollTime = 60000
-        let fastPollingStarted = false
-        let elapsedTime = 0
-
-        const intervalId = setInterval(async () => {
-            pollCount++
-            elapsedTime += pollInterval
-
-            // Stop polling after max attempts
-            if (pollCount > maxPolls) {
-                clearInterval(intervalId)
-                pollingDocumentsRef.current.delete(docId)
-
-                setProcessingIds(prev => {
-                    const updated = new Set(prev)
-                    updated.delete(docId)
-                    return updated
-                })
-                return
-            }
-
+        const initializeWebSocket = async () => {
             try {
-                // ✅ Check actual document completion (not webhook status)
-                const isCompleted = await checkDocumentCompletion(docId)
+                const params = new URLSearchParams({
+                    page: "1",
+                    limit: "5",
+                })
 
-                if (isCompleted) {
-                    console.log(`[SIDEBAR] Document ${docId} completed`)
+                const response = await fetch(`/api/recent-documents?${params}`, {
+                    credentials: "include",
+                })
 
-                    clearInterval(intervalId)
-                    pollingDocumentsRef.current.delete(docId)
+                if (response.ok) {
+                    const data = await response.json()
+                    const documents = data.documents || []
 
-                    setProcessingIds(prev => {
-                        const updated = new Set(prev)
-                        updated.delete(docId)
-                        return updated
-                    })
+                    // Find documents that are marked as processing
+                    const processingDocs = documents.filter((doc: HistoryDocument) => doc.status === 'processing')
 
-                    // ✅ Clear pending status from document
-                    setHistory(prev => prev.map(doc =>
-                        doc.id === docId ? { ...doc, status: undefined } : doc
-                    ))
+                    console.log(`[SIDEBAR] Found ${processingDocs.length} processing documents on init`)
 
-                    // Fetch documents to update list
-                    await fetchDocuments(currentPageRef.current, true)
-                } else if (!fastPollingStarted && elapsedTime >= switchToFastPollTime) {
-                    // Switch to fast polling
-                    console.log(`[SIDEBAR] Switching to fast polling for ${docId}`)
-                    fastPollingStarted = true
-                    clearInterval(intervalId)
-
-                    const newIntervalId = setInterval(async () => {
-                        pollCount++
-
-                        if (pollCount > maxPolls) {
-                            clearInterval(newIntervalId)
-                            pollingDocumentsRef.current.delete(docId)
-
-                            setProcessingIds(prev => {
-                                const updated = new Set(prev)
-                                updated.delete(docId)
-                                return updated
-                            })
-                            return
+                    // Subscribe to WebSocket updates for processing documents
+                    processingDocs.forEach((doc: HistoryDocument) => {
+                        if (doc.job_id) {
+                            console.log(`[SIDEBAR] Subscribing to WebSocket for ${doc.id}`)
+                            subscribeToDocument(doc.id, doc.job_id)
                         }
-
-                        try {
-                            // ✅ Check actual document completion
-                            const isCompleted = await checkDocumentCompletion(docId)
-
-                            if (isCompleted) {
-                                console.log(`[SIDEBAR] Document ${docId} completed (fast poll)`)
-
-                                clearInterval(newIntervalId)
-                                pollingDocumentsRef.current.delete(docId)
-
-                                setProcessingIds(prev => {
-                                    const updated = new Set(prev)
-                                    updated.delete(docId)
-                                    return updated
-                                })
-
-                                // ✅ Clear pending status
-                                setHistory(prev => prev.map(doc =>
-                                    doc.id === docId ? { ...doc, status: undefined } : doc
-                                ))
-
-                                await fetchDocuments(currentPageRef.current, true)
-                            }
-                        } catch (error) {
-                        }
-                    }, 5000)
-
-                    pollingDocumentsRef.current.set(docId, {
-                        docId,
-                        pollCount,
-                        intervalId: newIntervalId,
                     })
                 }
-            } catch (error) {
+            } catch (err) {
+                console.error("[SIDEBAR] Error initializing WebSocket:", err)
             }
-        }, 60000)
+        }
 
-        pollingDocumentsRef.current.set(docId, {
-            docId,
-            pollCount,
-            intervalId,
+        isInitializedRef.current = true
+        initializeWebSocket()
+    }, [user, isConnected, subscribeToDocument])
+
+    // ✅ Monitor document status changes from WebSocket
+    useEffect(() => {
+        if (documentStatus.size === 0) return
+
+        console.log(`[SIDEBAR] Processing ${documentStatus.size} status events`)
+
+        documentStatus.forEach((event) => {
+            console.log(`[SIDEBAR] 📡 Handling status change for ${event.documentId}:`, event.status)
+            
+            if (event.status === "completed") {
+                console.log(`[SIDEBAR] ✅ Document ${event.documentId} completed via WebSocket`)
+                
+                // Update history - remove processing status
+                setHistory(prev => {
+                    const updated = prev.map(doc =>
+                        doc.id === event.documentId 
+                            ? { ...doc, status: undefined } 
+                            : doc
+                    )
+                    return updated
+                })
+
+                // Fetch fresh data from server
+                console.log(`[SIDEBAR] 🔄 Fetching fresh document list`)
+                fetchDocuments(currentPageRef.current, true)
+                
+                // Unsubscribe from further updates for this document
+                console.log(`[SIDEBAR] 🔕 Unsubscribing from ${event.documentId}`)
+                unsubscribeFromDocument(event.documentId)
+            } else if (event.status === "failed") {
+                console.error(`[SIDEBAR] ❌ Document ${event.documentId} failed:`, event.error)
+                
+                setHistory(prev => prev.map(doc =>
+                    doc.id === event.documentId 
+                        ? { ...doc, status: "failed" } 
+                        : doc
+                ))
+                
+                unsubscribeFromDocument(event.documentId)
+            }
         })
-    }, [fetchDocuments, checkDocumentCompletion])
+    }, [documentStatus, fetchDocuments, unsubscribeFromDocument])
 
     // Open document in main panel
     const openDocument = useCallback(async (doc: HistoryDocument) => {
@@ -323,58 +288,6 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         }
     }, [onHistorySelect])
 
-    // ✅ NEW: Initialize polling for documents that should be processing
-    useEffect(() => {
-        if (!user || isInitializedRef.current) return
-
-        const initializePolling = async () => {
-            try {
-                // Fetch initial documents to check for pending ones
-                const params = new URLSearchParams({
-                    page: "1",
-                    limit: "5",
-                })
-
-                const response = await fetch(`/api/recent-documents?${params}`, {
-                    credentials: "include",
-                })
-
-                if (response.ok) {
-                    const data = await response.json()
-                    const documents = data.documents || []
-
-                    // Find documents that are marked as pending
-                    const pendingDocs = documents.filter((doc: HistoryDocument) => doc.status === 'pending')
-
-                    console.log(`[SIDEBAR] Found ${pendingDocs.length} pending documents on init`)
-
-                    // Start polling for pending documents
-                    pendingDocs.forEach((doc: HistoryDocument) => {
-                        if (!pollingDocumentsRef.current.has(doc.id)) {
-                            console.log(`[SIDEBAR] Starting polling for ${doc.id}`)
-                            startPolling(doc.id)
-                        }
-                    })
-                }
-            } catch (err) {
-                console.error("[SIDEBAR] Error initializing polling:", err)
-            }
-        }
-
-        isInitializedRef.current = true
-        initializePolling()
-    }, [user, startPolling])
-
-    // Stop polling when component unmounts
-    useEffect(() => {
-        return () => {
-            pollingDocumentsRef.current.forEach(({ intervalId }) => {
-                clearInterval(intervalId)
-            })
-            pollingDocumentsRef.current.clear()
-        }
-    }, [])
-
     // Fetch on component mount - only once
     useEffect(() => {
         if (!user) return
@@ -401,8 +314,9 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     }, [selectedDocumentId])
 
     const handleHistoryClick = useCallback(async (doc: HistoryDocument) => {
-        // Determine if this document is still processing
-        const isProcessing = processingDocumentId === doc.id || doc.status === 'pending' || processingIds.has(doc.id)
+        // Check if still processing via WebSocket status
+        const wsStatus = documentStatus.get(doc.id)
+        const isProcessing = processingDocumentId === doc.id || doc.status === 'processing' || (wsStatus && wsStatus.status === "processing")
 
         // Prevent clicking on documents that are still processing
         if (isProcessing) {
@@ -412,7 +326,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         onHistoryClickStart?.(doc.id)
         openedDocumentRef.current.add(doc.id)
         await openDocument(doc)
-    }, [onHistoryClickStart, openDocument, processingDocumentId, processingIds])
+    }, [onHistoryClickStart, openDocument, processingDocumentId, documentStatus])
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString)
@@ -537,8 +451,13 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             setUploadProgress(0)
             setProgressMessage("")
 
+            // ✅ Subscribe to WebSocket updates for new document
+            if (data.job_id) {
+                console.log(`[SIDEBAR] Subscribing to WebSocket for new document ${data.id}`)
+                subscribeToDocument(data.id, data.job_id)
+            }
+
             await fetchDocuments(currentPageRef.current, true)
-            startPolling(data.id)
             onUploadSuccess(processingDocument)
         } catch (error) {
             alert(error instanceof Error ? error.message : "Failed to upload. Please try again.")
@@ -672,6 +591,12 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                 <h3 className="text-xs font-semibold text-foreground">
                                     Recent Documents
                                 </h3>
+                                {isConnected && (
+                                    <div className="ml-auto flex items-center gap-1">
+                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                        <span className="text-[10px] text-green-600 font-medium">Live</span>
+                                    </div>
+                                )}
                             </div>
                             {isAdmin && (
                                 <Card className="border border-border/50 bg-muted/20 p-2">
@@ -726,8 +651,9 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                             ) : history.length > 0 ? (
                                 <div className="space-y-1">
                                     {history.map((doc) => {
-                                        // ✅ FIXED: Check actual status from DB or local processing set
-                                        const isProcessing = processingDocumentId === doc.id || doc.status === 'pending' || processingIds.has(doc.id)
+                                        // ✅ Check WebSocket status
+                                        const wsStatus = documentStatus.get(doc.id)
+                                        const isProcessing = processingDocumentId === doc.id || doc.status === 'processing' || (wsStatus && wsStatus.status === "processing")
                                         const isCurrentlyOpen = currentlyOpenedDocId === doc.id
 
                                         return (

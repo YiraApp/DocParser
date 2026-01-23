@@ -1,6 +1,7 @@
 ﻿"use client"
 import { useEffect, useState, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
+import { useWebSocket } from "@/lib/useWebSocket"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 // Add this import with the other icon imports
@@ -219,7 +220,6 @@ function categorizeFields(fields: Array<any>, structuredData: any = {}) {
         billing: [] as Array<{ label: string; value: string }>,
 
         other: [] as Array<{ label: string; value: string }>,
-
     }
     const billingKeywords = [
         "total bill",
@@ -410,6 +410,8 @@ function categorizeFields(fields: Array<any>, structuredData: any = {}) {
 export function ResultsView({ document: initialDocument }: ResultsViewProps) {
     const router = useRouter()
     const searchParams = useSearchParams()
+    const { subscribeToDocument, unsubscribeFromDocument, onDocumentUpdate } = useWebSocket()
+    
     const [document, setDocument] = useState<any>(initialDocument || null)
     const [isLoading, setIsLoading] = useState(!initialDocument)
     const [error, setError] = useState<string | null>(null)
@@ -482,6 +484,10 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 const data = await response.json()
                 console.log("[ResultsView] Document data loaded successfully:", data)
                 setDocument(data)
+
+                // Subscribe to WebSocket updates for real-time document changes
+                console.log(`[ResultsView] Subscribing to document updates: ${documentId}`)
+                subscribeToDocument(documentId, data.id || documentId)
             } catch (err) {
                 if (err instanceof Error && err.name === "AbortError") {
                     console.log(`[ResultsView] Fetch aborted for ID: ${documentId}`)
@@ -501,8 +507,34 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             if (abortController) {
                 abortController.abort()
             }
+            if (documentId) {
+                unsubscribeFromDocument(documentId)
+            }
         }
-    }, [searchParams?.get("id"), initialDocument])
+    }, [searchParams?.get("id"), initialDocument, subscribeToDocument, unsubscribeFromDocument])
+
+    // Listen for document updates via WebSocket
+    useEffect(() => {
+        if (!document?.id) return
+
+        console.log(`[ResultsView] Setting up WebSocket listener for document: ${document.id}`)
+
+        const unsubscribe = onDocumentUpdate(document.id, (updateData) => {
+            console.log("[ResultsView] Received document update:", updateData)
+            if (updateData.status === "completed" && updateData.data) {
+                // Update document with new data
+                setDocument((prev: any) => ({
+                    ...prev,
+                    ...updateData.data,
+                    updatedAt: new Date().toISOString(),
+                }))
+            }
+        })
+
+        return () => {
+            unsubscribe?.()
+        }
+    }, [document?.id, onDocumentUpdate])
 
     const handleLanguageChange = async (language: string) => {
         // Stop any playing audio when language changes
@@ -820,8 +852,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     <div className="flex justify-between items-start">
                                         <span className="text-muted-foreground font-semibold">Match %:</span>
                                         <span className={`font-bold ${match.match_percentage === 100 ? 'text-red-600' : 'text-orange-600'}`}>
-                                            {match.match_percentage}%
-                                        </span>
+                                            {match.match_percentage}%</span>
                                     </div>
                                 )}
                                 {match.job_id && (
@@ -2121,7 +2152,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </Card>
                                         )}
 
-                                  
                                         {/* TMT Analysis Section */}
                                         {fraudDetection.tmt && (
                                             <Card className="border border-purple-500/20 bg-purple-500/5">
@@ -2186,13 +2216,12 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                                                                 const cloned = { ...prev };
                                                                                                 const tmtToUpdate = cloned.structuredData?.fraudDetection?.tmt;
                                                                                                 if (tmtToUpdate) {
+                                                                                                    
                                                                                                     tmtToUpdate.matches = allMatches;
                                                                                                 }
                                                                                                 return cloned;
                                                                                             });
-                                                                                        }}
-                                                                                        className="text-sm font-medium text-primary"
-                                                                                    >
+                                                            }} className="text-sm font-medium text-primary">
                                                                                     </Button>
                                                                                 </div>
                                                                             )}

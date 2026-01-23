@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { useDocumentStatus } from "@/hooks/useDocumentStatus"
 
 interface ProcessingState {
     isProcessing: boolean
@@ -51,12 +52,13 @@ export default function HomePage() {
     const [isLoadingDocument, setIsLoadingDocument] = useState(false)
     const [selectedDocumentId, setSelectedDocumentId] = useState<string | undefined>(undefined)
 
-    const pollIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
-    const processingStateRef = useRef<ProcessingState>(processingState)
-    const isHydratedRef = useRef(false)
-
+    // ✅ WebSocket integration
+    const { documentStatus, subscribeToDocument } = useDocumentStatus()
     const { user, logout, isAdmin, isLoading } = useAuth()
     const router = useRouter()
+
+    const processingStateRef = useRef<ProcessingState>(processingState)
+    const isHydratedRef = useRef(false)
 
     // ✅ Keep ref in sync with state
     useEffect(() => {
@@ -107,185 +109,78 @@ export default function HomePage() {
         }
     }, [processingState])
 
-    // ✅ Refactored polling with persistent state
-    const startPolling = (documentId: string, fileName: string, jobId: string) => {
-        const existingInterval = pollIntervalsRef.current.get(documentId)
-        if (existingInterval) {
-            clearInterval(existingInterval)
-        }
-
-        let pollAttempts = 0
-        const maxAttempts = 300
-        let fastPollingStarted = false
-        let elapsedTime = 0
-
-        const slowPoll = () => {
-            const intervalId = setInterval(async () => {
-                pollAttempts++
-                elapsedTime += 60000
-
-                try {
-                    const response = await fetch(`/api/parse-document?id=${documentId}`)
-                    if (response.ok) {
-                        const fullData = await response.json()
-
-                        if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
-                            console.log(`[HOMEPAGE] Document ${documentId} completed`)
-
-                            const formattedData = {
-                                id: fullData.id || documentId,
-                                fileName: fullData.fileName || fileName,
-                                fileUrl: fullData.fileUrl,
-                                uploadedAt: fullData.uploadedAt || new Date().toISOString(),
-                                documentType: fullData.documentType || "Medical Document",
-                                fields: fullData.fields || [],
-                                summary: fullData.summary || "",
-                                notes: fullData.notes || [],
-                                structuredData: fullData.structuredData || {},
-                                confidenceScore: fullData.confidenceScore,
-                                healthRecommendations: fullData.healthRecommendations,
-                                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                                jobId: jobId,
-                            }
-
-                            setParsedDocument(formattedData)
-                            setIsLoadingDocument(false)
-                            const clearedState = {
-                                isProcessing: false,
-                                fileName: "",
-                                documentId: "",
-                                jobId: "",
-                            }
-                            setProcessingState(clearedState)
-                            localStorage.removeItem(PROCESSING_STATE_KEY)
-
-                            clearInterval(intervalId)
-                            pollIntervalsRef.current.delete(documentId)
-                            return
-                        } else if (!fastPollingStarted && elapsedTime >= 60000) {
-                            console.log(`[HOMEPAGE] Switching to fast polling for document ${documentId}`)
-                            fastPollingStarted = true
-                            clearInterval(intervalId)
-                            pollIntervalsRef.current.delete(documentId)
-                            fastPoll()
-                            return
-                        }
-                    }
-                } catch (err) {
-                    console.error("[HOMEPAGE] Polling error:", err)
-                }
-
-                if (pollAttempts > maxAttempts) {
-                    console.log(`[HOMEPAGE] Max polling attempts reached for ${documentId}`)
-                    clearInterval(intervalId)
-                    pollIntervalsRef.current.delete(documentId)
-                    const clearedState = {
-                        isProcessing: false,
-                        fileName: "",
-                        documentId: "",
-                        jobId: "",
-                    }
-                    setProcessingState(clearedState)
-                    localStorage.removeItem(PROCESSING_STATE_KEY)
-                }
-            }, 60000)
-
-            pollIntervalsRef.current.set(documentId, intervalId)
-        }
-
-        const fastPoll = () => {
-            const intervalId = setInterval(async () => {
-                pollAttempts++
-
-                try {
-                    const response = await fetch(`/api/parse-document?id=${documentId}`)
-                    if (response.ok) {
-                        const fullData = await response.json()
-
-                        if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
-                            console.log(`[HOMEPAGE] Document ${documentId} completed (fast poll)`)
-
-                            const formattedData = {
-                                id: fullData.id || documentId,
-                                fileName: fullData.fileName || fileName,
-                                fileUrl: fullData.fileUrl,
-                                uploadedAt: fullData.uploadedAt || new Date().toISOString(),
-                                documentType: fullData.documentType || "Medical Document",
-                                fields: fullData.fields || [],
-                                summary: fullData.summary || "",
-                                notes: fullData.notes || [],
-                                structuredData: fullData.structuredData || {},
-                                confidenceScore: fullData.confidenceScore,
-                                healthRecommendations: fullData.healthRecommendations,
-                                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                                jobId: jobId,
-                            }
-
-                            setParsedDocument(formattedData)
-                            setIsLoadingDocument(false)
-                            const clearedState = {
-                                isProcessing: false,
-                                fileName: "",
-                                documentId: "",
-                                jobId: "",
-                            }
-                            setProcessingState(clearedState)
-                            localStorage.removeItem(PROCESSING_STATE_KEY)
-
-                            clearInterval(intervalId)
-                            pollIntervalsRef.current.delete(documentId)
-                            return
-                        }
-                    }
-                } catch (err) {
-                    console.error("[HOMEPAGE] Fast polling error:", err)
-                }
-
-                if (pollAttempts > maxAttempts) {
-                    console.log(`[HOMEPAGE] Max fast polling attempts reached for ${documentId}`)
-                    clearInterval(intervalId)
-                    pollIntervalsRef.current.delete(documentId)
-                    const clearedState = {
-                        isProcessing: false,
-                        fileName: "",
-                        documentId: "",
-                        jobId: "",
-                    }
-                    setProcessingState(clearedState)
-                    localStorage.removeItem(PROCESSING_STATE_KEY)
-                }
-            }, 5000)
-
-            pollIntervalsRef.current.set(documentId, intervalId)
-        }
-
-        slowPoll()
-    }
-
-    // ✅ Simplified effect: only start polling when processing starts
+    // ✅ Monitor WebSocket status updates
     useEffect(() => {
-        if (!processingState.isProcessing || !processingState.documentId) return
+        const processingDoc = processingState
+        if (!processingDoc.documentId || !processingDoc.isProcessing) return
 
-        startPolling(processingState.documentId, processingState.fileName, processingState.jobId)
+        const wsStatus = documentStatus.get(processingDoc.documentId)
+        if (!wsStatus) return
 
-        return () => {
-            const interval = pollIntervalsRef.current.get(processingState.documentId)
-            if (interval) {
-                clearInterval(interval)
-                pollIntervalsRef.current.delete(processingState.documentId)
+        if (wsStatus.status === "completed") {
+            console.log(`[HOMEPAGE] Document ${processingDoc.documentId} completed via WebSocket`)
+
+            // Fetch the completed document
+            const fetchCompletedDocument = async () => {
+                try {
+                    const response = await fetch(`/api/parse-document?id=${processingDoc.documentId}`)
+                    if (response.ok) {
+                        const fullData = await response.json()
+
+                        const formattedData = {
+                            id: fullData.id || processingDoc.documentId,
+                            fileName: fullData.fileName || processingDoc.fileName,
+                            fileUrl: fullData.fileUrl,
+                            uploadedAt: fullData.uploadedAt || new Date().toISOString(),
+                            documentType: fullData.documentType || "Medical Document",
+                            fields: fullData.fields || [],
+                            summary: fullData.summary || "",
+                            notes: fullData.notes || [],
+                            structuredData: fullData.structuredData || {},
+                            confidenceScore: fullData.confidenceScore,
+                            healthRecommendations: fullData.healthRecommendations,
+                            fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
+                            jobId: processingDoc.jobId,
+                        }
+
+                        setParsedDocument(formattedData)
+                        setIsLoadingDocument(false)
+                        const clearedState = {
+                            isProcessing: false,
+                            fileName: "",
+                            documentId: "",
+                            jobId: "",
+                        }
+                        setProcessingState(clearedState)
+                        localStorage.removeItem(PROCESSING_STATE_KEY)
+                    }
+                } catch (err) {
+                    console.error("[HOMEPAGE] Error fetching completed document:", err)
+                }
             }
-        }
-    }, [processingState.isProcessing, processingState.documentId])
 
-    // ✅ Cleanup all intervals on component unmount
-    useEffect(() => {
-        return () => {
-            pollIntervalsRef.current.forEach((interval) => {
-                clearInterval(interval)
-            })
-            pollIntervalsRef.current.clear()
+            fetchCompletedDocument()
+        } else if (wsStatus.status === "failed") {
+            console.error(`[HOMEPAGE] Document ${processingDoc.documentId} failed:`, wsStatus.error)
+            alert(`Document processing failed: ${wsStatus.error}`)
+            const clearedState = {
+                isProcessing: false,
+                fileName: "",
+                documentId: "",
+                jobId: "",
+            }
+            setProcessingState(clearedState)
+            localStorage.removeItem(PROCESSING_STATE_KEY)
         }
-    }, [])
+    }, [processingState, documentStatus])
+
+    // ✅ Subscribe to WebSocket when processing starts
+    useEffect(() => {
+        if (processingState.isProcessing && processingState.documentId && processingState.jobId) {
+            console.log(`[HOMEPAGE] Subscribing to WebSocket for ${processingState.documentId}`)
+            subscribeToDocument(processingState.documentId, processingState.jobId)
+        }
+    }, [processingState.documentId, processingState.isProcessing, subscribeToDocument])
 
     if (isLoading || !user) {
         return (
