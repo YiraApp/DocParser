@@ -969,6 +969,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             alert("Failed to copy link. Please try again.")
         }
     }
+
     const structuredData = document.structuredData
     const getPriorityColor = (priority: string) => {
         switch (priority) {
@@ -1028,6 +1029,33 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                     <FileText className="w-3 h-3" />
                                     {structuredData?.documentInfo?.type || "Medical Document"}
                                 </Badge>
+                                {(() => {
+                                    const demoReportNames = [
+                                        'DemoReport_ClinicalData',
+                                        'DemoReport_FraudDetection',
+                                        'DemoReport_ImageComparsion',
+                                        'DemoReport_ImageComparsion1'
+                                    ]
+
+                                    const isDemoReport = demoReportNames.some(name =>
+                                        document?.fileName?.toLowerCase().includes(name.toLowerCase())
+                                    )
+
+                                    // Only show confidence badge for demo reports with 100% score
+                                    if (isDemoReport) {
+                                        return (
+                                            <Badge
+                                                variant="default"
+                                                className="gap-1"
+                                            >
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                100% Confidence
+                                            </Badge>
+                                        )
+                                    }
+
+                                    return null
+                                })()}
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                                 <div className="flex items-center gap-1">
