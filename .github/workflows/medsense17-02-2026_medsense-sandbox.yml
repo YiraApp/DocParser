@@ -8,7 +8,7 @@ on:
  
 env:
   APPLICATION_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-  WEBAPP_NAME: "nextdemo"
+  WEBAPP_NAME: "Medsense-sandbox"
   NEXT_PUBLIC_BASE_URL: ${{ secrets.NEXT_PUBLIC_BASE_URL }}
  
 jobs:
@@ -38,4 +38,5 @@ jobs:
           app-name: 'Medsense-sandbox'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4CD99C0A8E5644A59F1852B46B253D9A }}
           package: ./build/standalone
+
 
