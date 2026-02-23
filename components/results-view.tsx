@@ -730,8 +730,8 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             "Patient Record")
     const cleanDownloadFilename = document?.fileName ? document.fileName.replace(/\.(pdf|PDF)$/i, ".png") : "document.png"
     const handleDownloadJSON = () => {
-        if (!document?.structuredData) return
-        const jsonString = JSON.stringify(document.structuredData, null, 2)
+        if (!document?.structuredData?.rawParsedData) return
+        const jsonString = JSON.stringify(document.structuredData.rawParsedData, null, 2)
         const blob = new Blob([jsonString], { type: "application/json" })
         const url = URL.createObjectURL(blob)
         const a = window.document.createElement("a")
@@ -885,42 +885,59 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         if (typeof document === "undefined" || !document?.structuredData) return;
         const wb = XLSX.utils.book_new();
 
-        // Helper to flatten nested objects into key-value pairs
-        const flattenObject = (obj: any, prefix = ""): Array<[string, string]> => {
-            const result: Array<[string, string]> = [];
+        // Helper to convert JSON to flat rows (same logic as JSON stringify)
+        const jsonToRows = (obj: any, prefix = ""): Array<[string, string]> => {
+            const rows: Array<[string, string]> = [];
 
-            Object.entries(obj).forEach(([key, value]: [string, any]) => {
-                const fullKey = prefix ? `${prefix} - ${key}` : key;
+            const traverse = (value: any, key: string) => {
+                const fullKey = prefix ? `${prefix}.${key}` : key;
 
                 if (value === null || value === undefined) {
-                    result.push([fullKey, "N/A"]);
+                    rows.push([fullKey, "N/A"]);
                 } else if (Array.isArray(value)) {
                     if (value.length === 0) {
-                        result.push([fullKey, "N/A"]);
+                        rows.push([fullKey, "N/A"]);
                     } else if (typeof value[0] === "object" && value[0] !== null) {
-                        // For array of objects, stringify nicely
-                        result.push([fullKey, JSON.stringify(value, null, 2)]);
+                        rows.push([fullKey, JSON.stringify(value, null, 2)]);
                     } else {
-                        // For simple arrays, join with comma
-                        result.push([fullKey, value.map(v => String(v)).join(", ")]);
+                        rows.push([fullKey, value.map(v => String(v)).join(", ")]);
                     }
                 } else if (typeof value === "object" && value !== null) {
-                    // Recursively flatten nested objects (null check redundant here due to earlier check, but explicit for clarity)
-                    const flattened = flattenObject(value, fullKey);
-                    result.push(...flattened);
+                    Object.entries(value).forEach(([k, v]) => {
+                        traverse(v, k);
+                    });
                 } else {
-                    result.push([fullKey, String(value)]);
+                    rows.push([fullKey, String(value)]);
                 }
+            };
+
+            Object.entries(obj).forEach(([key, value]) => {
+                traverse(value, key);
             });
 
-            return result;
+            return rows;
         };
-        // Create Raw Data sheet from rawParsedData
-        if (document.structuredData?.rawParsedData) {
-            const rawData = flattenObject(document.structuredData.rawParsedData);
+
+        // Create Structured Data sheet (same format as JSON download)
+        if (document.structuredData) {
+            const structuredRows = jsonToRows(document.structuredData);
             const sheetData: any[][] = [["Field", "Value"]];
 
-            rawData.forEach(([field, value]) => {
+            structuredRows.forEach(([field, value]) => {
+                sheetData.push([field, value]);
+            });
+
+            const ws = XLSX.utils.aoa_to_sheet(sheetData);
+            ws['!cols'] = [{ wch: 35 }, { wch: 60 }];
+            XLSX.utils.book_append_sheet(wb, ws, "Structured Data");
+        }
+
+        // Create Raw Data sheet (from rawParsedData if available)
+        if (document.structuredData?.rawParsedData) {
+            const rawRows = jsonToRows(document.structuredData.rawParsedData);
+            const sheetData: any[][] = [["Field", "Value"]];
+
+            rawRows.forEach(([field, value]) => {
                 sheetData.push([field, value]);
             });
 
@@ -930,7 +947,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         }
 
         // Write the Excel file
-        XLSX.writeFile(wb, `${document.fileName.replace(/\.[^/.]+$/, "")}_raw_data_${new Date().toISOString().split('T')[0]}.xlsx`);
+        XLSX.writeFile(wb, `${document.fileName.replace(/\.[^/.]+$/, "")}_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
     const handleShare = async () => {
         const shareData = {
@@ -1091,7 +1108,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="clinical">Clinical</TabsTrigger>
                     <TabsTrigger value="medical-history">Medical History</TabsTrigger>
-                    {/*<TabsTrigger value="recommendations">Recommendations</TabsTrigger>*/}
+                    <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
                     <TabsTrigger value="fraud-detection">Fraud Detection</TabsTrigger>
                     <TabsTrigger value="raw">Raw Data</TabsTrigger>
                 </TabsList>
@@ -1252,23 +1269,47 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 </TabsContent>
                 <TabsContent value="clinical" className="space-y-3">
                     {/* Diagnosis */}
+
                     {structuredData?.clinicalData?.diagnosis && (
-                        <Card className="border border-border/50">
-                            <div className="p-4 space-y-2">
-                                <div className="flex items-center gap-1">
-                                    <div className="w-6 h-6 rounded-md bg-destructive/10 flex items-center justify-center">
-                                        <Stethoscope className="w-3 h-3 text-destructive" />
+                        <Card className="border border-destructive/30 bg-destructive/5">
+                            <div className="p-4 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 rounded-md bg-destructive/10 flex items-center justify-center">
+                                        <Stethoscope className="w-4 h-4 text-destructive" />
                                     </div>
                                     <h3 className="font-semibold text-foreground">Diagnosis</h3>
                                 </div>
-                                <p className="text-sm text-foreground">{structuredData.clinicalData.diagnosis}</p>
+
+                                {/* Handle array of diagnoses */}
+                                {Array.isArray(structuredData.clinicalData.diagnosis) ? (
+                                    <div className="space-y-2">
+                                        {structuredData.clinicalData.diagnosis.map((diagnosis: string, idx: number) => (
+                                            <div
+                                                key={idx}
+                                                className="flex items-start gap-3 p-3 rounded-lg bg-background border border-destructive/20 hover:border-destructive/40 transition-colors"
+                                            >
+                                                <CheckCircle2 className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                                                <p className="text-sm text-foreground leading-relaxed flex-1">
+                                                    {diagnosis}
+                                                </p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    /* Handle single diagnosis string */
+                                    <p className="text-sm text-foreground leading-relaxed p-3 rounded-lg bg-background border border-destructive/20">
+                                        {structuredData.clinicalData.diagnosis}
+                                    </p>
+                                )}
+
                                 {structuredData.clinicalData.secondaryDiagnoses &&
                                     structuredData.clinicalData.secondaryDiagnoses.length > 0 && (
-                                        <div className="pt-1">
-                                            <p className="text-xs text-muted-foreground mb-1">Secondary Diagnoses:</p>
-                                            <div className="flex flex-wrap gap-1">
+                                        <div className="pt-3 border-t border-destructive/20 space-y-2">
+                                            <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Associated Conditions</p>
+                                            <div className="flex flex-wrap gap-2">
                                                 {structuredData.clinicalData.secondaryDiagnoses.map((diagnosis: string, idx: number) => (
-                                                    <Badge key={idx} variant="outline">
+                                                    <Badge key={idx} variant="secondary" className="gap-1">
+                                                        <CheckCircle2 className="w-3 h-3" />
                                                         {diagnosis}
                                                     </Badge>
                                                 ))}
@@ -2257,22 +2298,26 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                     )}
                 </TabsContent>
                 <TabsContent value="raw">
-                    <Card className="border border-border/50">
-                        <div className="p-4">
-                            <pre className="text-xs text-foreground overflow-x-auto bg-muted/30 p-3 rounded-md">
-                                {(() => {
-                                    let displayStructured = { ...structuredData };
-                                    if (structuredData?.rawParsedData?.lab_results) {
-                                        displayStructured.clinicalData = {
-                                            ...displayStructured.clinicalData,
-                                            labResults: null  // Remove duplicate flattened lab results
-                                        };
-                                    }
-                                    return JSON.stringify(displayStructured, null, 2);
-                                })()}
-                            </pre>
-                        </div>
-                    </Card>
+                        {/* Display raw webhook parsed data */}
+                        {document?.structuredData?.rawParsedData ? (
+                        <Card className="border border-border/50">
+                            <div className="p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <FileJson className="w-4 h-4 text-muted-foreground" />
+                                    <h3 className="text-base font-semibold text-foreground">
+                                        Raw Data
+                                    </h3>
+                                </div>
+
+                                <pre className="text-xs text-foreground overflow-x-auto bg-muted/30 p-3 rounded-md whitespace-pre-wrap break-words">
+                                    {JSON.stringify(document?.structuredData?.rawParsedData, null, 2)}
+                                </pre>
+                            </div>
+                        </Card>
+
+                        ) : null}
+
+                        {/* Display structured data */}
                     {/* Bind billing and other fields to raw as they are miscellaneous */}
                     {categorizedFields.billing.length > 0 && (
                         <Card className="border border-emerald-500/20 bg-emerald-500/5 shadow-sm">

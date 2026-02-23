@@ -65,6 +65,8 @@ function mapParsedDataToStructured(parsedData: any, fraudDetection: any = null) 
         photoComparison: parsedData.photo_comparison || null,
         // Updated: Use !== null check for consistency with webhook version
         fraudDetection: fraudDetection !== null ? fraudDetection : (parsedData.fraud_detection || null),
+        // ✅ ADD RAW PARSED DATA FOR DISPLAY IN RAW TAB
+        rawParsedData: parsedData,
     }
 }
 function extractVitalSigns(parsedData: any) {
@@ -161,6 +163,7 @@ function safeStringify(value: any): string {
 export async function GET(request: NextRequest) {
     try {
         const id = request.nextUrl.searchParams.get("id")
+        const download = request.nextUrl.searchParams.get("download")
         console.log("[PARSE-DOCUMENT GET] Request ID:", id)
         if (!id) {
             console.error("[PARSE-DOCUMENT GET] ❌ Missing ID parameter")
@@ -220,6 +223,40 @@ export async function GET(request: NextRequest) {
             user_email: userEmail,
         }
 
+        // **Handle raw data download**
+        // **Handle raw data download**
+        if (download === "raw") {
+            console.log("[PARSE-DOCUMENT GET] 📥 Generating raw data download")
+            // Transform to get rawParsedData
+            const structured_data = mapParsedDataToStructured(doc.parsed_data, doc.fraud_detection)
+            // Extract ONLY rawParsedData for download
+            const rawDataOnly = structured_data.rawParsedData
+
+            if (!rawDataOnly) {
+                return NextResponse.json(
+                    { error: "Raw parsed data not available" },
+                    { status: 404 }
+                )
+            }
+
+            const jsonContent = JSON.stringify(rawDataOnly, null, 2)
+            const sanitizedFileName = fileName.replace(/[^a-z0-9-_.]/gi, "_")
+            const downloadFileName = `${sanitizedFileName}_raw_${new Date().toISOString().split("T")[0]}.json`
+
+            console.log("[PARSE-DOCUMENT GET] 📥 Raw data download ready:", downloadFileName)
+
+            return new NextResponse(jsonContent, {
+                status: 200,
+                headers: {
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Content-Disposition": `attachment; filename="${downloadFileName}"`,
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            })
+        }
+
         // **Transform to structured data**
         console.log("[PARSE-DOCUMENT GET] 🔄 Transforming parsed_data to structured_data")
         const structured_data = mapParsedDataToStructured(doc.parsed_data, doc.fraud_detection)
@@ -242,6 +279,7 @@ export async function GET(request: NextRequest) {
         console.log("[PARSE-DOCUMENT GET] ✅ Returning formatted data from webhook_responses")
         console.log("[PARSE-DOCUMENT GET] Medical History Questions Count:", structured_data.medicalHistoryQuestions.length)
         console.log("[PARSE-DOCUMENT GET] Fraud Detection:", !!formattedData.fraudDetection)
+        console.log("[PARSE-DOCUMENT GET] Raw Parsed Data included:", !!structured_data.rawParsedData)
         return NextResponse.json(formattedData)
     } catch (error) {
         console.error("[PARSE-DOCUMENT GET] ❌ Error:", error)
