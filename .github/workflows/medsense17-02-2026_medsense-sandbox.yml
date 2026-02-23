@@ -38,3 +38,4 @@ jobs:
           app-name: 'Medsense-sandbox'
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_4CD99C0A8E5644A59F1852B46B253D9A }}
+          package: ./build/standalone
