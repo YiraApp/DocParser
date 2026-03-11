@@ -1,11 +1,9 @@
-﻿// Modified LeftSidebar component - COMPLETE FIX
-"use client"
+﻿"use client"
 import type React from "react"
 import { useState, useCallback, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Upload, FileText, Loader2, CheckCircle2, Zap, Clock, ChevronRight, AlertCircle, Search, X, ChevronLeft } from "lucide-react"
-import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAuth } from "@/lib/auth-context"
@@ -13,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { initializeSocket } from "@/lib/socket-client"
 
 interface LeftSidebarProps {
     onUploadSuccess: (document: any) => void
@@ -42,13 +41,15 @@ interface PaginationInfo {
     hasPrevPage: boolean
 }
 
-interface PollingDocument {
-    docId: string
-    pollCount: number
-    intervalId: NodeJS.Timeout
-}
+const PROCESSING_IDS_KEY = "yira_processing_ids"
 
-export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickStart, processingDocumentId, selectedDocumentId }: LeftSidebarProps) {
+export function LeftSidebar({
+    onUploadSuccess,
+    onHistorySelect,
+    onHistoryClickStart,
+    processingDocumentId,
+    selectedDocumentId,
+}: LeftSidebarProps) {
     const [file, setFile] = useState<File | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
@@ -67,49 +68,185 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
     const hasReachedLimit = !(isAdmin ?? false) && (user?.uploadCount ?? 0) >= 10
     const currentPageRef = useRef(1)
     const isFetchingRef = useRef(false)
-    const documentToOpenRef = useRef<string | null>(null)
-    const openedDocumentRef = useRef<Set<string>>(new Set())
-    const pollingDocumentsRef = useRef<Map<string, PollingDocument>>(new Map())
-    const isInitializedRef = useRef(false)
+    const socketRef = useRef<any>(null)
+    const openingDocRef = useRef<Set<string>>(new Set())
+    const completedDocsRef = useRef<Set<string>>(new Set())
+    const isHydratedRef = useRef(false)
 
-    // ✅ NEW: Check document status from API (NOT from webhook)
-    const checkDocumentCompletion = useCallback(async (docId: string): Promise<boolean> => {
+    // ✅ Restore processing IDs from localStorage on mount
+    useEffect(() => {
+        if (isHydratedRef.current) return
+        isHydratedRef.current = true
+
         try {
-            const response = await fetch(`/api/parse-document?id=${docId}`)
-            if (response.ok) {
-                const fullData = await response.json()
-                // Document is completed if it has structured data
-                return !!(fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0)
+            const saved = localStorage.getItem(PROCESSING_IDS_KEY)
+            if (saved) {
+                const ids = JSON.parse(saved)
+                if (Array.isArray(ids) && ids.length > 0) {
+                    console.log("[SIDEBAR] 📦 Restoring processing IDs from localStorage:", ids)
+                    setProcessingIds(new Set(ids))
+                }
             }
         } catch (err) {
-            console.error("[SIDEBAR] Error checking document completion:", err)
+            console.error("[SIDEBAR] Error loading processing IDs:", err)
         }
-        return false
     }, [])
 
-    // Fetch documents with pagination
-    const fetchDocuments = useCallback(async (page: number = 1, skipLoading: boolean = false) => {
+    // ✅ Persist processing IDs to localStorage whenever they change
+    useEffect(() => {
+        const idsArray = Array.from(processingIds)
+        console.log("[SIDEBAR] 💾 Saving processing IDs to localStorage:", idsArray)
+        localStorage.setItem(PROCESSING_IDS_KEY, JSON.stringify(idsArray))
+    }, [processingIds])
+
+    // ✅ Sync processing IDs with database status immediately on mount
+    useEffect(() => {
+        const syncProcessingStatus = async () => {
+            if (processingIds.size === 0 || !user) return
+
+            try {
+                console.log("[SIDEBAR] 🔄 Syncing processing IDs with database...")
+                const response = await fetch(`/api/recent-documents?limit=100`, {
+                    credentials: "include",
+                })
+                
+                if (!response.ok) {
+                    console.error("[SIDEBAR] Failed to fetch documents:", response.status)
+                    return
+                }
+
+                const data = await response.json()
+                const completedIds = new Set<string>()
+
+                // ✅ Check each processing ID against database
+                processingIds.forEach(docId => {
+                    const dbDoc = data.documents?.find(
+                        (d: any) => d.id === docId || d.job_id === docId
+                    )
+
+                    if (dbDoc) {
+                        console.log(`[SIDEBAR] Database check - ${docId}: status="${dbDoc.status}"`)
+
+                        // ✅ If status is NOT "pending", document is completed
+                        if (dbDoc.status && dbDoc.status !== "pending") {
+                            console.log(`[SIDEBAR] ✅ ${docId} is COMPLETED in database (status: ${dbDoc.status})`)
+                            completedIds.add(docId)
+                        }
+                    }
+                })
+
+                // ✅ Remove all completed docs from processing IDs
+                if (completedIds.size > 0) {
+                    console.log(`[SIDEBAR] 🗑️ Removing ${completedIds.size} completed documents from localStorage`)
+                    setProcessingIds(prev => {
+                        const updated = new Set(prev)
+                        completedIds.forEach(id => {
+                            updated.delete(id)
+                            console.log(`[SIDEBAR] ✅ Deleted ${id} from processing`)
+                        })
+                        return updated
+                    })
+                }
+            } catch (err) {
+                console.error("[SIDEBAR] Error syncing processing status:", err)
+            }
+        }
+
+        // ✅ Sync immediately when component mounts
+        syncProcessingStatus()
+        
+        // ✅ Also sync every 3 seconds while processing
+        if (processingIds.size > 0) {
+            const interval = setInterval(syncProcessingStatus, 3000)
+            return () => clearInterval(interval)
+        }
+    }, [processingIds, user])
+
+    // ✅ Initialize Socket.IO connection ONCE
+    useEffect(() => {
         if (!user) return
 
-        // Prevent multiple simultaneous fetches
-        if (isFetchingRef.current) {
-            return
-        }
-
-        if (!skipLoading) {
-            setIsLoadingHistory(true)
-        }
-        isFetchingRef.current = true
-
         try {
-            const params = new URLSearchParams({
-                page: page.toString(),
-                limit: "5",
-            })
+            console.log("[SIDEBAR] 🚀 Initializing Socket.IO...")
+            const socket = initializeSocket()
+            socketRef.current = socket
 
-            // Only add filters for admins
-            if (isAdmin) {
-                if (filterQuery.trim()) {
+            // Authenticate user once connected
+            const handleConnect = () => {
+                console.log("[SIDEBAR] ✅ Socket connected, authenticating...")
+                socket.emit("user-join", {
+                    userId: user.id,
+                    userEmail: user.email,
+                })
+
+                // ✅ Re-subscribe to all processing documents after reconnect
+                processingIds.forEach(docId => {
+                    console.log(`[SIDEBAR] 📡 Re-subscribing to ${docId} after reconnect`)
+                    socket.emit("subscribe-document", { docId })
+                })
+            }
+
+            if (socket.connected) {
+                handleConnect()
+            } else {
+                socket.on("connect", handleConnect)
+            }
+
+            // ✅ Listen for document completion - THIS IS THE KEY EVENT
+            const handleDocumentCompleted = (data: any) => {
+                const { docId } = data
+                console.log(`[SIDEBAR] 🎉 SOCKET.IO EVENT: Document ${docId} completed!`)
+
+                // ✅ Immediately remove from processing (webhook already updated DB)
+                setProcessingIds(prev => {
+                    const updated = new Set(prev)
+                    updated.delete(docId)
+                    console.log(`[SIDEBAR] ✅ Socket event removed ${docId} from processing IDs`)
+                    return updated
+                })
+
+                // Update history
+                setHistory(prev => {
+                    return prev.map(doc => {
+                        if (doc.id === docId || doc.job_id === docId) {
+                            return { ...doc, status: "completed" }
+                        }
+                        return doc
+                    })
+                })
+
+                // Unsubscribe
+                socket.emit("unsubscribe-document", { docId })
+            }
+
+            socket.on("document-completed", handleDocumentCompleted)
+
+            return () => {
+                socket.off("connect", handleConnect)
+                socket.off("document-completed", handleDocumentCompleted)
+            }
+        } catch (err) {
+            console.error("[SIDEBAR] ❌ Socket.IO init failed:", err)
+        }
+    }, [user])
+
+    // Fetch documents with pagination
+    const fetchDocuments = useCallback(
+        async (page: number = 1, skipLoading: boolean = false) => {
+            if (!user) return
+            if (isFetchingRef.current) return
+            if (!skipLoading) {
+                setIsLoadingHistory(true)
+            }
+            isFetchingRef.current = true
+
+            try {
+                const params = new URLSearchParams({
+                    page: page.toString(),
+                    limit: "5",
+                })
+
+                if (isAdmin && filterQuery.trim()) {
                     if (filterType === "email") {
                         params.append("filterEmail", filterQuery)
                     } else if (filterType === "user") {
@@ -118,301 +255,116 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                         params.append("filterName", filterQuery)
                     }
                 }
-            }
-
-            const response = await fetch(`/api/recent-documents?${params}`, {
-                credentials: "include",
-            })
-
-            if (!response.ok) {
-                return
-            }
-
-            const data = await response.json()
-
-            // ✅ FIXED: Don't rely on local processingIds - check actual document status
-            const filteredDocuments = (data.documents || []).map((doc: HistoryDocument) => {
-                // If document has pending status in DB, mark as pending
-                if (doc.status === 'pending') {
-                    return { ...doc, status: 'pending' }
-                }
-                return { ...doc, status: undefined }
-            })
-
-            setHistory(filteredDocuments)
-            setPagination(data.pagination)
-            setCurrentPage(page)
-            currentPageRef.current = page
-
-            // If there's a document to open and we haven't opened it yet, open it now
-            if (documentToOpenRef.current && !openedDocumentRef.current.has(documentToOpenRef.current)) {
-                const docToOpen = filteredDocuments?.find((doc: { id: string | null }) => doc.id === documentToOpenRef.current)
-                if (docToOpen) {
-                    openedDocumentRef.current.add(documentToOpenRef.current)
-                    await openDocument(docToOpen)
-                    setCurrentlyOpenedDocId(documentToOpenRef.current)
-                    documentToOpenRef.current = null
-                }
-            }
-        } catch (err) {
-        } finally {
-            isFetchingRef.current = false
-            if (!skipLoading) {
-                setIsLoadingHistory(false)
-            }
-        }
-    }, [user, isAdmin, filterQuery, filterType])
-
-    // ✅ IMPROVED: Start polling with status verification
-    const startPolling = useCallback((docId: string) => {
-        setProcessingIds(prev => new Set(prev).add(docId))
-
-        let pollCount = 0
-        const maxPolls = 300
-        let pollInterval = 60000
-        const switchToFastPollTime = 60000
-        let fastPollingStarted = false
-        let elapsedTime = 0
-
-        const intervalId = setInterval(async () => {
-            pollCount++
-            elapsedTime += pollInterval
-
-            // Stop polling after max attempts
-            if (pollCount > maxPolls) {
-                clearInterval(intervalId)
-                pollingDocumentsRef.current.delete(docId)
-
-                setProcessingIds(prev => {
-                    const updated = new Set(prev)
-                    updated.delete(docId)
-                    return updated
-                })
-                return
-            }
-
-            try {
-                // ✅ Check actual document completion (not webhook status)
-                const isCompleted = await checkDocumentCompletion(docId)
-
-                if (isCompleted) {
-                    console.log(`[SIDEBAR] Document ${docId} completed`)
-
-                    clearInterval(intervalId)
-                    pollingDocumentsRef.current.delete(docId)
-
-                    setProcessingIds(prev => {
-                        const updated = new Set(prev)
-                        updated.delete(docId)
-                        return updated
-                    })
-
-                    // ✅ Clear pending status from document
-                    setHistory(prev => prev.map(doc =>
-                        doc.id === docId ? { ...doc, status: undefined } : doc
-                    ))
-
-                    // Fetch documents to update list
-                    await fetchDocuments(currentPageRef.current, true)
-                } else if (!fastPollingStarted && elapsedTime >= switchToFastPollTime) {
-                    // Switch to fast polling
-                    console.log(`[SIDEBAR] Switching to fast polling for ${docId}`)
-                    fastPollingStarted = true
-                    clearInterval(intervalId)
-
-                    const newIntervalId = setInterval(async () => {
-                        pollCount++
-
-                        if (pollCount > maxPolls) {
-                            clearInterval(newIntervalId)
-                            pollingDocumentsRef.current.delete(docId)
-
-                            setProcessingIds(prev => {
-                                const updated = new Set(prev)
-                                updated.delete(docId)
-                                return updated
-                            })
-                            return
-                        }
-
-                        try {
-                            // ✅ Check actual document completion
-                            const isCompleted = await checkDocumentCompletion(docId)
-
-                            if (isCompleted) {
-                                console.log(`[SIDEBAR] Document ${docId} completed (fast poll)`)
-
-                                clearInterval(newIntervalId)
-                                pollingDocumentsRef.current.delete(docId)
-
-                                setProcessingIds(prev => {
-                                    const updated = new Set(prev)
-                                    updated.delete(docId)
-                                    return updated
-                                })
-
-                                // ✅ Clear pending status
-                                setHistory(prev => prev.map(doc =>
-                                    doc.id === docId ? { ...doc, status: undefined } : doc
-                                ))
-
-                                await fetchDocuments(currentPageRef.current, true)
-                            }
-                        } catch (error) {
-                        }
-                    }, 5000)
-
-                    pollingDocumentsRef.current.set(docId, {
-                        docId,
-                        pollCount,
-                        intervalId: newIntervalId,
-                    })
-                }
-            } catch (error) {
-            }
-        }, 60000)
-
-        pollingDocumentsRef.current.set(docId, {
-            docId,
-            pollCount,
-            intervalId,
-        })
-    }, [fetchDocuments, checkDocumentCompletion])
-
-    // Open document in main panel
-    const openDocument = useCallback(async (doc: HistoryDocument) => {
-        if (!onHistorySelect) return
-        try {
-            const response = await fetch(`/api/parse-document?id=${doc.id}`)
-            if (!response.ok) {
-                throw new Error("Failed to fetch document details")
-            }
-            const fullData = await response.json()
-            const formattedData = {
-                id: fullData.id || doc.id,
-                fileName: fullData.fileName || fullData.file_name || doc.file_name,
-                fileUrl: fullData.fileUrl || fullData.file_url,
-                uploadedAt: fullData.uploadedAt || fullData.created_at || doc.created_at,
-                documentType: fullData.documentType || fullData.document_type || "Medical Document",
-                fields: fullData.fields || [],
-                summary: fullData.summary || "",
-                notes: fullData.notes || [],
-                structuredData: fullData.structuredData || fullData.structured_data || doc.structured_data,
-                confidenceScore: fullData.confidenceScore || fullData.confidence_score,
-                healthRecommendations: fullData.healthRecommendations || fullData.health_recommendations,
-                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                jobId: fullData.jobId || doc.job_id,
-            }
-            onHistorySelect(formattedData)
-            setCurrentlyOpenedDocId(doc.id)
-        } catch (error) {
-            onHistorySelect({
-                id: doc.id,
-                fileName: doc.file_name,
-                structuredData: doc.structured_data,
-                uploadedAt: doc.created_at,
-                documentType: "Medical Document",
-                fields: [],
-                summary: "",
-                notes: [],
-                confidenceScore: undefined,
-                healthRecommendations: undefined,
-                jobId: doc.job_id,
-            })
-            setCurrentlyOpenedDocId(doc.id)
-        }
-    }, [onHistorySelect])
-
-    // ✅ NEW: Initialize polling for documents that should be processing
-    useEffect(() => {
-        if (!user || isInitializedRef.current) return
-
-        const initializePolling = async () => {
-            try {
-                // Fetch initial documents to check for pending ones
-                const params = new URLSearchParams({
-                    page: "1",
-                    limit: "5",
-                })
 
                 const response = await fetch(`/api/recent-documents?${params}`, {
                     credentials: "include",
                 })
 
-                if (response.ok) {
-                    const data = await response.json()
-                    const documents = data.documents || []
+                if (!response.ok) return
 
-                    // Find documents that are marked as pending
-                    const pendingDocs = documents.filter((doc: HistoryDocument) => doc.status === 'pending')
+                const data = await response.json()
 
-                    console.log(`[SIDEBAR] Found ${pendingDocs.length} pending documents on init`)
+                const filteredDocuments = (data.documents || []).map(
+                    (doc: HistoryDocument) =>
+                        doc.status === "pending" ? doc : { ...doc, status: undefined }
+                )
 
-                    // Start polling for pending documents
-                    pendingDocs.forEach((doc: HistoryDocument) => {
-                        if (!pollingDocumentsRef.current.has(doc.id)) {
-                            console.log(`[SIDEBAR] Starting polling for ${doc.id}`)
-                            startPolling(doc.id)
-                        }
-                    })
-                }
+                setHistory(filteredDocuments)
+                setPagination(data.pagination)
+                setCurrentPage(page)
+                currentPageRef.current = page
             } catch (err) {
-                console.error("[SIDEBAR] Error initializing polling:", err)
+                console.error("[SIDEBAR] Error fetching documents:", err)
+            } finally {
+                isFetchingRef.current = false
+                if (!skipLoading) {
+                    setIsLoadingHistory(false)
+                }
             }
-        }
+        },
+        [user, isAdmin, filterQuery, filterType]
+    )
 
-        isInitializedRef.current = true
-        initializePolling()
-    }, [user, startPolling])
-
-    // Stop polling when component unmounts
-    useEffect(() => {
-        return () => {
-            pollingDocumentsRef.current.forEach(({ intervalId }) => {
-                clearInterval(intervalId)
-            })
-            pollingDocumentsRef.current.clear()
-        }
-    }, [])
-
-    // Fetch on component mount - only once
+    // ✅ SINGLE effect for mount - NO fetchDocuments dependency
     useEffect(() => {
         if (!user) return
         fetchDocuments(1)
-        openedDocumentRef.current.clear()
     }, [user])
 
-    // Fetch when filter changes
+    // ✅ SINGLE effect for filter changes - with debounce
     useEffect(() => {
         if (!isAdmin) return
-
-        const timer = setTimeout(() => {
-            fetchDocuments(1)
-        }, 500)
-
+        const timer = setTimeout(() => fetchDocuments(1), 500)
         return () => clearTimeout(timer)
     }, [filterQuery, filterType, isAdmin, fetchDocuments])
 
-    // Update current opened document when selectedDocumentId changes from parent
-    useEffect(() => {
-        if (selectedDocumentId) {
-            setCurrentlyOpenedDocId(selectedDocumentId)
-        }
-    }, [selectedDocumentId])
+    // ✅ Open document - NO API CALL
+    const openDocument = useCallback(
+        async (doc: HistoryDocument) => {
+            if (!onHistorySelect) return
 
-    const handleHistoryClick = useCallback(async (doc: HistoryDocument) => {
-        // Determine if this document is still processing
-        const isProcessing = processingDocumentId === doc.id || doc.status === 'pending' || processingIds.has(doc.id)
+            if (openingDocRef.current.has(doc.id)) {
+                console.log(`[SIDEBAR] ⏭️  Already opening ${doc.id}`)
+                return
+            }
 
-        // Prevent clicking on documents that are still processing
-        if (isProcessing) {
-            return
-        }
+            openingDocRef.current.add(doc.id)
 
-        onHistoryClickStart?.(doc.id)
-        openedDocumentRef.current.add(doc.id)
-        await openDocument(doc)
-    }, [onHistoryClickStart, openDocument, processingDocumentId, processingIds])
+            try {
+                console.log(`[SIDEBAR] 📂 Opening document ${doc.id} from local cache (NO API CALL)`)
+                onHistorySelect({
+                    id: doc.id,
+                    fileName: doc.file_name,
+                    fileUrl: undefined,
+                    uploadedAt: doc.created_at,
+                    documentType: "Medical Document",
+                    fields: [],
+                    summary: "",
+                    notes: [],
+                    structuredData: doc.structured_data || {},
+                    confidenceScore: undefined,
+                    healthRecommendations: undefined,
+                    fraudDetection: null,
+                    jobId: doc.job_id,
+                })
+                setCurrentlyOpenedDocId(doc.id)
+                console.log(`[SIDEBAR] ✅ Document ${doc.id} opened from cache`)
+            } catch (error) {
+                console.error("[SIDEBAR] Error opening document:", error)
+                onHistorySelect({
+                    id: doc.id,
+                    fileName: doc.file_name,
+                    structuredData: doc.structured_data || {},
+                    uploadedAt: doc.created_at,
+                    documentType: "Medical Document",
+                    fields: [],
+                    summary: "",
+                    notes: [],
+                    jobId: doc.job_id,
+                })
+                setCurrentlyOpenedDocId(doc.id)
+            } finally {
+                openingDocRef.current.delete(doc.id)
+            }
+        },
+        [onHistorySelect]
+    )
+
+    // ✅ Handle history click
+    const handleHistoryClick = useCallback(
+        async (doc: HistoryDocument) => {
+            const isProcessing =
+                processingDocumentId === doc.id ||
+                doc.status === "pending" ||
+                processingIds.has(doc.id)
+
+            if (isProcessing) return
+
+            onHistoryClickStart?.(doc.id)
+            await openDocument(doc)
+        },
+        [onHistoryClickStart, openDocument, processingDocumentId, processingIds]
+    )
 
     const formatDate = (dateString: string) => {
         const date = new Date(dateString)
@@ -450,7 +402,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 setFile(droppedFile)
             }
         },
-        [hasReachedLimit],
+        [hasReachedLimit]
     )
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -461,16 +413,23 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
         }
         const selectedFile = e.target.files?.[0]
         if (selectedFile) {
-            const validTypes = ["image/png", "image/jpeg", "image/jpg", "application/pdf"]
-            const isValid = validTypes.includes(selectedFile.type)
-            if (!isValid) {
-                alert("Only image files (PNG, JPG, JPEG) and PDF documents are supported.")
+            const validTypes = [
+                "image/png",
+                "image/jpeg",
+                "image/jpg",
+                "application/pdf",
+            ]
+            if (!validTypes.includes(selectedFile.type)) {
+                alert(
+                    "Only image files (PNG, JPG, JPEG) and PDF documents are supported."
+                )
                 return
             }
             setFile(selectedFile)
         }
     }
 
+    // ✅ Handle Upload Success
     const handleUpload = async () => {
         if (hasReachedLimit) {
             setShowLimitDialog(true)
@@ -480,21 +439,26 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             alert("Please select a file to upload")
             return
         }
+
         const validTypes = ["image/png", "image/jpeg", "image/jpg", "application/pdf"]
-        const isValid = validTypes.includes(file.type)
-        if (!isValid) {
+        if (!validTypes.includes(file.type)) {
             alert("Only image files (PNG, JPG, JPEG) and PDF documents are supported.")
             return
         }
+
         setIsUploading(true)
         setUploadProgress(0)
         setProgressMessage("Starting...")
+
         try {
             setUploadProgress(20)
             setProgressMessage("Uploading file...")
+
             const formData = new FormData()
             formData.append("file", file)
+
             setUploadProgress(50)
+
             const response = await fetch("/api/upload-wrapper", {
                 method: "POST",
                 headers: {
@@ -504,29 +468,29 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                 },
                 body: formData,
             })
+
             setProgressMessage("Processing with AI...")
             setUploadProgress(75)
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: "Upload failed" }))
                 throw new Error(errorData.error || "Upload failed")
             }
+
             const data = await response.json()
             setProgressMessage("Complete!")
             setUploadProgress(100)
-            await new Promise((resolve) => setTimeout(resolve, 500))
+            await new Promise(resolve => setTimeout(resolve, 500))
 
             const processingDocument = {
                 id: data.id,
                 fileName: file.name,
-                fileUrl: undefined,
                 uploadedAt: new Date().toISOString(),
                 documentType: "Medical Document",
                 fields: [],
                 summary: "",
                 notes: [],
                 structuredData: {},
-                confidenceScore: undefined,
-                healthRecommendations: undefined,
                 jobId: data.job_id,
                 reportId: data.report_id,
                 status: "processing",
@@ -538,7 +502,28 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
             setProgressMessage("")
 
             await fetchDocuments(currentPageRef.current, true)
-            startPolling(data.id)
+
+            // ✅ Subscribe to document updates via Socket.IO (NOT API CALL)
+            const docIdToSubscribe = data.id || data.job_id
+            console.log(`[SIDEBAR] 📡 Subscribing to socket updates for: ${docIdToSubscribe}`)
+
+            // Add to processing IDs FIRST (this persists to localStorage)
+            setProcessingIds(prev => {
+                const updated = new Set(prev)
+                updated.add(docIdToSubscribe)
+                console.log(`[SIDEBAR] ✅ Added ${docIdToSubscribe} to processing IDs`)
+                return updated
+            })
+
+            // Then subscribe to socket
+            if (socketRef.current?.connected) {
+                socketRef.current.emit("subscribe-document", { docId: docIdToSubscribe })
+            } else {
+                socketRef.current?.once("connect", () => {
+                    socketRef.current?.emit("subscribe-document", { docId: docIdToSubscribe })
+                })
+            }
+
             onUploadSuccess(processingDocument)
         } catch (error) {
             alert(error instanceof Error ? error.message : "Failed to upload. Please try again.")
@@ -558,19 +543,36 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                             <Card
                                 className={cn(
                                     "border p-2",
-                                    hasReachedLimit ? "border-destructive/50 bg-destructive/5" : "border-border/50 bg-muted/20",
+                                    hasReachedLimit
+                                        ? "border-destructive/50 bg-destructive/5"
+                                        : "border-border/50 bg-muted/20"
                                 )}
                             >
                                 <div className="flex items-center gap-2 text-xs">
                                     <AlertCircle
-                                        className={cn("w-3 h-3", hasReachedLimit ? "text-destructive" : "text-muted-foreground")}
+                                        className={cn(
+                                            "w-3 h-3",
+                                            hasReachedLimit
+                                                ? "text-destructive"
+                                                : "text-muted-foreground"
+                                        )}
                                     />
-                                    <span className={cn("font-medium", hasReachedLimit ? "text-destructive" : "text-foreground")}>
-                                        {hasReachedLimit ? "Upload limit reached (10/10)" : `${user?.uploadCount || 0}/10 uploads used`}
+                                    <span
+                                        className={cn(
+                                            "font-medium",
+                                            hasReachedLimit
+                                                ? "text-destructive"
+                                                : "text-foreground"
+                                        )}
+                                    >
+                                        {hasReachedLimit
+                                            ? "Upload limit reached (10/10)"
+                                            : `${user?.uploadCount || 0}/10 uploads used`}
                                     </span>
                                 </div>
                             </Card>
                         )}
+
                         <Card className="border border-primary/20 shadow-lg bg-gradient-to-br from-card to-card/50 backdrop-blur-sm">
                             <div className="p-2 space-y-2">
                                 <div className="flex items-center gap-2">
@@ -581,6 +583,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                         Upload New Document
                                     </h3>
                                 </div>
+
                                 <div
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
@@ -589,7 +592,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                         "relative border-2 border-dashed rounded-lg p-3 text-center transition-all",
                                         isDragging
                                             ? "border-primary bg-primary/10 scale-[1.01]"
-                                            : "border-border/50 bg-muted/30 hover:border-primary/50 hover:bg-muted/50",
+                                            : "border-border/50 bg-muted/30 hover:border-primary/50 hover:bg-muted/50"
                                     )}
                                 >
                                     <input
@@ -615,7 +618,12 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                                         {file.name}
                                                     </p>
                                                     <p className="text-[10px] text-muted-foreground">
-                                                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                                                        {(
+                                                            file.size /
+                                                            1024 /
+                                                            1024
+                                                        ).toFixed(2)}{" "}
+                                                        MB
                                                     </p>
                                                 </div>
                                             </>
@@ -640,13 +648,16 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                             size="sm"
                                             className="mt-1 h-7 px-3 text-xs"
                                             onClick={() =>
-                                                document.getElementById("file-upload")?.click()
+                                                document
+                                                    .getElementById("file-upload")
+                                                    ?.click()
                                             }
                                         >
                                             {file ? "Change File" : "Browse Files"}
                                         </Button>
                                     </div>
                                 </div>
+
                                 <Button
                                     onClick={handleUpload}
                                     disabled={!file || isUploading}
@@ -666,6 +677,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                 </Button>
                             </div>
                         </Card>
+
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
                                 <Clock className="w-3 h-3 text-muted-foreground" />
@@ -673,14 +685,41 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                     Recent Documents
                                 </h3>
                             </div>
+
                             {isAdmin && (
                                 <Card className="border border-border/50 bg-muted/20 p-2">
                                     <div className="space-y-2">
-                                        <Tabs defaultValue="name" value={filterType} onValueChange={(value) => setFilterType(value as "name" | "email" | "user")}>
+                                        <Tabs
+                                            defaultValue="name"
+                                            value={filterType}
+                                            onValueChange={value =>
+                                                setFilterType(
+                                                    value as
+                                                    | "name"
+                                                    | "email"
+                                                    | "user"
+                                                )
+                                            }
+                                        >
                                             <TabsList className="grid w-full grid-cols-3 h-7">
-                                                <TabsTrigger value="name" className="text-xs">File Name</TabsTrigger>
-                                                <TabsTrigger value="user" className="text-xs">User Name</TabsTrigger>
-                                                <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
+                                                <TabsTrigger
+                                                    value="name"
+                                                    className="text-xs"
+                                                >
+                                                    File Name
+                                                </TabsTrigger>
+                                                <TabsTrigger
+                                                    value="user"
+                                                    className="text-xs"
+                                                >
+                                                    User Name
+                                                </TabsTrigger>
+                                                <TabsTrigger
+                                                    value="email"
+                                                    className="text-xs"
+                                                >
+                                                    Email
+                                                </TabsTrigger>
                                             </TabsList>
                                         </Tabs>
                                         <div className="relative">
@@ -694,12 +733,16 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                                             : "Search by email..."
                                                 }
                                                 value={filterQuery}
-                                                onChange={(e) => setFilterQuery(e.target.value)}
+                                                onChange={e =>
+                                                    setFilterQuery(e.target.value)
+                                                }
                                                 className="pl-7 h-7 text-xs"
                                             />
                                             {filterQuery && (
                                                 <button
-                                                    onClick={() => setFilterQuery("")}
+                                                    onClick={() =>
+                                                        setFilterQuery("")
+                                                    }
                                                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                                                 >
                                                     <X className="w-3 h-3" />
@@ -709,13 +752,18 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                         {pagination && (
                                             <div className="text-[10px] text-muted-foreground space-y-1">
                                                 <div>
-                                                    Found: <span className="font-semibold">{pagination.total}</span> total documents
+                                                    Found:{" "}
+                                                    <span className="font-semibold">
+                                                        {pagination.total}
+                                                    </span>{" "}
+                                                    total documents
                                                 </div>
                                             </div>
                                         )}
                                     </div>
                                 </Card>
                             )}
+
                             {isLoadingHistory ? (
                                 <Card className="border border-border/50">
                                     <div className="p-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -725,20 +773,29 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                 </Card>
                             ) : history.length > 0 ? (
                                 <div className="space-y-1">
-                                    {history.map((doc) => {
-                                        // ✅ FIXED: Check actual status from DB or local processing set
-                                        const isProcessing = processingDocumentId === doc.id || doc.status === 'pending' || processingIds.has(doc.id)
-                                        const isCurrentlyOpen = currentlyOpenedDocId === doc.id
+                                    {history.map(doc => {
+                                        const isProcessing =
+                                            processingDocumentId === doc.id ||
+                                            doc.status === "pending" ||
+                                            processingIds.has(doc.id)
+                                        const isCurrentlyOpen =
+                                            currentlyOpenedDocId === doc.id
 
                                         return (
                                             <Card
                                                 key={doc.id}
                                                 className={cn(
                                                     "border hover:border-primary/50 hover:bg-accent/5 transition-all py-2 group min-h-[40px]",
-                                                    isProcessing ? "cursor-not-allowed opacity-75" : "cursor-pointer",
-                                                    isCurrentlyOpen ? "border-primary bg-primary/5" : "border-border/50"
+                                                    isProcessing
+                                                        ? "cursor-not-allowed opacity-75"
+                                                        : "cursor-pointer",
+                                                    isCurrentlyOpen
+                                                        ? "border-primary bg-primary/5"
+                                                        : "border-border/50"
                                                 )}
-                                                onClick={() => handleHistoryClick(doc)}
+                                                onClick={() =>
+                                                    handleHistoryClick(doc)
+                                                }
                                             >
                                                 <div className="p-2 flex items-center gap-2">
                                                     <div className="p-1.5 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
@@ -752,22 +809,33 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                                         <p className="text-xs font-medium text-foreground truncate max-w-[180px]">
                                                             {doc.file_name}
                                                         </p>
-                                                        {isAdmin && doc.user_name && (
-                                                            <p className="text-[10px] text-muted-foreground truncate">
-                                                                {doc.user_name}
-                                                            </p>
-                                                        )}
-                                                        {isAdmin && doc.user_email && (
-                                                            <p className="text-[10px] text-muted-foreground truncate">
-                                                                {doc.user_email}
-                                                            </p>
-                                                        )}
+                                                        {isAdmin &&
+                                                            doc.user_name && (
+                                                                <p className="text-[10px] text-muted-foreground truncate">
+                                                                    {
+                                                                        doc.user_name
+                                                                    }
+                                                                </p>
+                                                            )}
+                                                        {isAdmin &&
+                                                            doc.user_email && (
+                                                                <p className="text-[10px] text-muted-foreground truncate">
+                                                                    {
+                                                                        doc.user_email
+                                                                    }
+                                                                </p>
+                                                            )}
                                                         <div className="flex items-center gap-1">
                                                             <p className="text-[10px] text-muted-foreground">
-                                                                {formatDate(doc.created_at)}
+                                                                {formatDate(
+                                                                    doc.created_at
+                                                                )}
                                                             </p>
                                                             {isProcessing && (
-                                                                <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 border-0">
+                                                                <Badge
+                                                                    variant="secondary"
+                                                                    className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100 border-0"
+                                                                >
                                                                     In Progress
                                                                 </Badge>
                                                             )}
@@ -780,37 +848,62 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                                     })}
                                 </div>
                             ) : null}
-                            {pagination && pagination.totalPages > 1 && history.length > 0 && (
-                                <Card className="border border-border/50 bg-muted/20 p-2">
-                                    <div className="flex items-center justify-between gap-1">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-7 px-2"
-                                            disabled={!pagination.hasPrevPage}
-                                            onClick={() => fetchDocuments(currentPage - 1)}
-                                        >
-                                            <ChevronLeft className="w-3 h-3" />
-                                        </Button>
-                                        <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-1 text-center">
-                                            Page <span className="font-semibold">{pagination.page}</span> of <span className="font-semibold">{pagination.totalPages}</span>
+
+                            {pagination &&
+                                pagination.totalPages > 1 &&
+                                history.length > 0 && (
+                                    <Card className="border border-border/50 bg-muted/20 p-2">
+                                        <div className="flex items-center justify-between gap-1">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 px-2"
+                                                disabled={
+                                                    !pagination.hasPrevPage
+                                                }
+                                                onClick={() =>
+                                                    fetchDocuments(
+                                                        currentPage - 1
+                                                    )
+                                                }
+                                            >
+                                                <ChevronLeft className="w-3 h-3" />
+                                            </Button>
+                                            <div className="text-[10px] text-muted-foreground whitespace-nowrap flex-1 text-center">
+                                                Page{" "}
+                                                <span className="font-semibold">
+                                                    {pagination.page}
+                                                </span>{" "}
+                                                of{" "}
+                                                <span className="font-semibold">
+                                                    {pagination.totalPages}
+                                                </span>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 px-2"
+                                                disabled={
+                                                    !pagination.hasNextPage
+                                                }
+                                                onClick={() =>
+                                                    fetchDocuments(
+                                                        currentPage + 1
+                                                    )
+                                                }
+                                            >
+                                                <ChevronRight className="w-3 h-3" />
+                                            </Button>
                                         </div>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-7 px-2"
-                                            disabled={!pagination.hasNextPage}
-                                            onClick={() => fetchDocuments(currentPage + 1)}
-                                        >
-                                            <ChevronRight className="w-3 h-3" />
-                                        </Button>
-                                    </div>
-                                </Card>
-                            )}
+                                    </Card>
+                                )}
+
                             {!isLoadingHistory && history.length === 0 && (
                                 <Card className="border border-border/50 bg-muted/20">
                                     <div className="p-3 text-center text-xs text-muted-foreground">
-                                        {isAdmin && filterQuery ? "No documents match your filter" : "No recent documents"}
+                                        {isAdmin && filterQuery
+                                            ? "No documents match your filter"
+                                            : "No recent documents"}
                                     </div>
                                 </Card>
                             )}
@@ -818,21 +911,33 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                     </div>
                 </ScrollArea>
             </aside>
+
             <Dialog open={showLimitDialog} onOpenChange={setShowLimitDialog}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Upload Limit Reached</DialogTitle>
                         <DialogDescription className="space-y-2 pt-1">
                             <p className="text-xs">
-                                You have reached your upload limit of 10 documents.
+                                You have reached your upload limit of 10
+                                documents.
                             </p>
                             <p className="text-xs text-foreground">
-                                To upload more documents, please contact our sales team at <a href="mailto:sales@yira.ai" className="text-primary hover:underline">sales@yira.ai</a> or upgrade your plan.
+                                To upload more documents, please contact our
+                                sales team at{" "}
+                                <a
+                                    href="mailto:sales@yira.ai"
+                                    className="text-primary hover:underline"
+                                >
+                                    sales@yira.ai
+                                </a>{" "}
+                                or upgrade your plan.
                             </p>
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex justify-end">
-                        <Button onClick={() => setShowLimitDialog(false)}>Close</Button>
+                        <Button onClick={() => setShowLimitDialog(false)}>
+                            Close
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>

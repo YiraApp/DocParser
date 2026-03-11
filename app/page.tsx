@@ -1,4 +1,4 @@
-﻿// Modified HomePage component - SHOW PROCESSING STATE ON REFRESH
+﻿// ✅ SOCKET.IO ONLY - NO POLLING
 "use client"
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
@@ -15,7 +15,7 @@ import { SearchInterface } from "../components/search-interface"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
+import { initializeSocket } from "@/lib/socket-client"
 
 interface ProcessingState {
     isProcessing: boolean
@@ -51,19 +51,84 @@ export default function HomePage() {
     const [isLoadingDocument, setIsLoadingDocument] = useState(false)
     const [selectedDocumentId, setSelectedDocumentId] = useState<string | undefined>(undefined)
 
-    const pollIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
-    const processingStateRef = useRef<ProcessingState>(processingState)
+    const socketRef = useRef<any>(null)
     const isHydratedRef = useRef(false)
 
     const { user, logout, isAdmin, isLoading } = useAuth()
     const router = useRouter()
 
-    // ✅ Keep ref in sync with state
+    // ✅ Initialize Socket.IO ONCE
     useEffect(() => {
-        processingStateRef.current = processingState
-    }, [processingState])
+        if (!user) return
 
-    // ✅ Initialize from localStorage on mount AND show processing document
+        try {
+            console.log("[HOMEPAGE] 🚀 Initializing Socket.IO...")
+            const socket = initializeSocket()
+            socketRef.current = socket
+
+            const handleConnect = () => {
+                console.log("[HOMEPAGE] ✅ Socket connected")
+                socket.emit("user-join", {
+                    userId: user.id,
+                    userEmail: user.email,
+                })
+            }
+
+            if (socket.connected) {
+                handleConnect()
+            } else {
+                socket.on("connect", handleConnect)
+            }
+
+            // ✅ Listen for document completion via Socket.IO
+            const handleDocumentCompleted = (data: any) => {
+                const { docId } = data
+                console.log(`[HOMEPAGE] 🎉 Document ${docId} completed via Socket.IO!`)
+
+                // Fetch the completed document data
+                const fetchCompletedDocument = async () => {
+                    try {
+                        const response = await fetch(`/api/parse-document?id=${docId}`)
+                        if (response.ok) {
+                            const fullData = await response.json()
+                            setParsedDocument(fullData)
+                            setIsLoadingDocument(false)
+                        }
+                    } catch (err) {
+                        console.error("[HOMEPAGE] Error fetching completed document:", err)
+                    }
+                }
+
+                // Only fetch if this is the document we're waiting for
+                if (processingState.documentId === docId || processingState.jobId === docId) {
+                    fetchCompletedDocument()
+                }
+
+                // Clear processing state
+                setProcessingState({
+                    isProcessing: false,
+                    fileName: "",
+                    documentId: "",
+                    jobId: "",
+                })
+                localStorage.removeItem(PROCESSING_STATE_KEY)
+
+                // Unsubscribe
+                socket.emit("unsubscribe-document", { docId })
+            }
+
+            socket.on("document-completed", handleDocumentCompleted)
+
+            return () => {
+                socket.off("connect", handleConnect)
+                socket.off("document-completed", handleDocumentCompleted)
+            }
+        } catch (err) {
+            console.error("[HOMEPAGE] ❌ Socket.IO init failed:", err)
+        }
+    }, [user, processingState.documentId, processingState.jobId])
+
+    // ✅ Initialize from localStorage on mount
     useEffect(() => {
         if (isHydratedRef.current || isLoading || !user) return
 
@@ -77,9 +142,14 @@ export default function HomePage() {
 
                 if (savedState.isProcessing && savedState.documentId) {
                     setProcessingState(savedState)
-                    // ✅ NEW: Show the processing state in UI
                     setShowResults(true)
                     setIsLoadingDocument(true)
+
+                    // Subscribe to socket updates for this document
+                    const docId = savedState.documentId || savedState.jobId
+                    if (socketRef.current?.connected) {
+                        socketRef.current.emit("subscribe-document", { docId })
+                    }
                 } else {
                     localStorage.removeItem(PROCESSING_STATE_KEY)
                 }
@@ -101,191 +171,10 @@ export default function HomePage() {
     useEffect(() => {
         if (processingState.isProcessing && processingState.documentId) {
             localStorage.setItem(PROCESSING_STATE_KEY, JSON.stringify(processingState))
-            console.log("[HOMEPAGE] Saved processing state to localStorage:", processingState)
         } else {
             localStorage.removeItem(PROCESSING_STATE_KEY)
         }
     }, [processingState])
-
-    // ✅ Refactored polling with persistent state
-    const startPolling = (documentId: string, fileName: string, jobId: string) => {
-        const existingInterval = pollIntervalsRef.current.get(documentId)
-        if (existingInterval) {
-            clearInterval(existingInterval)
-        }
-
-        let pollAttempts = 0
-        const maxAttempts = 300
-        let fastPollingStarted = false
-        let elapsedTime = 0
-
-        const slowPoll = () => {
-            const intervalId = setInterval(async () => {
-                pollAttempts++
-                elapsedTime += 60000
-
-                try {
-                    const response = await fetch(`/api/parse-document?id=${documentId}`)
-                    if (response.ok) {
-                        const fullData = await response.json()
-
-                        if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
-                            console.log(`[HOMEPAGE] Document ${documentId} completed`)
-
-                            const formattedData = {
-                                id: fullData.id || documentId,
-                                fileName: fullData.fileName || fileName,
-                                fileUrl: fullData.fileUrl,
-                                uploadedAt: fullData.uploadedAt || new Date().toISOString(),
-                                documentType: fullData.documentType || "Medical Document",
-                                fields: fullData.fields || [],
-                                summary: fullData.summary || "",
-                                notes: fullData.notes || [],
-                                structuredData: fullData.structuredData || {},
-                                confidenceScore: fullData.confidenceScore,
-                                healthRecommendations: fullData.healthRecommendations,
-                                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                                jobId: jobId,
-                            }
-
-                            setParsedDocument(formattedData)
-                            setIsLoadingDocument(false)
-                            const clearedState = {
-                                isProcessing: false,
-                                fileName: "",
-                                documentId: "",
-                                jobId: "",
-                            }
-                            setProcessingState(clearedState)
-                            localStorage.removeItem(PROCESSING_STATE_KEY)
-
-                            clearInterval(intervalId)
-                            pollIntervalsRef.current.delete(documentId)
-                            return
-                        } else if (!fastPollingStarted && elapsedTime >= 60000) {
-                            console.log(`[HOMEPAGE] Switching to fast polling for document ${documentId}`)
-                            fastPollingStarted = true
-                            clearInterval(intervalId)
-                            pollIntervalsRef.current.delete(documentId)
-                            fastPoll()
-                            return
-                        }
-                    }
-                } catch (err) {
-                    console.error("[HOMEPAGE] Polling error:", err)
-                }
-
-                if (pollAttempts > maxAttempts) {
-                    console.log(`[HOMEPAGE] Max polling attempts reached for ${documentId}`)
-                    clearInterval(intervalId)
-                    pollIntervalsRef.current.delete(documentId)
-                    const clearedState = {
-                        isProcessing: false,
-                        fileName: "",
-                        documentId: "",
-                        jobId: "",
-                    }
-                    setProcessingState(clearedState)
-                    localStorage.removeItem(PROCESSING_STATE_KEY)
-                }
-            }, 60000)
-
-            pollIntervalsRef.current.set(documentId, intervalId)
-        }
-
-        const fastPoll = () => {
-            const intervalId = setInterval(async () => {
-                pollAttempts++
-
-                try {
-                    const response = await fetch(`/api/parse-document?id=${documentId}`)
-                    if (response.ok) {
-                        const fullData = await response.json()
-
-                        if (fullData && fullData.structuredData && Object.keys(fullData.structuredData).length > 0) {
-                            console.log(`[HOMEPAGE] Document ${documentId} completed (fast poll)`)
-
-                            const formattedData = {
-                                id: fullData.id || documentId,
-                                fileName: fullData.fileName || fileName,
-                                fileUrl: fullData.fileUrl,
-                                uploadedAt: fullData.uploadedAt || new Date().toISOString(),
-                                documentType: fullData.documentType || "Medical Document",
-                                fields: fullData.fields || [],
-                                summary: fullData.summary || "",
-                                notes: fullData.notes || [],
-                                structuredData: fullData.structuredData || {},
-                                confidenceScore: fullData.confidenceScore,
-                                healthRecommendations: fullData.healthRecommendations,
-                                fraudDetection: fullData.fraudDetection || fullData.structuredData?.fraudDetection || null,
-                                jobId: jobId,
-                            }
-
-                            setParsedDocument(formattedData)
-                            setIsLoadingDocument(false)
-                            const clearedState = {
-                                isProcessing: false,
-                                fileName: "",
-                                documentId: "",
-                                jobId: "",
-                            }
-                            setProcessingState(clearedState)
-                            localStorage.removeItem(PROCESSING_STATE_KEY)
-
-                            clearInterval(intervalId)
-                            pollIntervalsRef.current.delete(documentId)
-                            return
-                        }
-                    }
-                } catch (err) {
-                    console.error("[HOMEPAGE] Fast polling error:", err)
-                }
-
-                if (pollAttempts > maxAttempts) {
-                    console.log(`[HOMEPAGE] Max fast polling attempts reached for ${documentId}`)
-                    clearInterval(intervalId)
-                    pollIntervalsRef.current.delete(documentId)
-                    const clearedState = {
-                        isProcessing: false,
-                        fileName: "",
-                        documentId: "",
-                        jobId: "",
-                    }
-                    setProcessingState(clearedState)
-                    localStorage.removeItem(PROCESSING_STATE_KEY)
-                }
-            }, 5000)
-
-            pollIntervalsRef.current.set(documentId, intervalId)
-        }
-
-        slowPoll()
-    }
-
-    // ✅ Simplified effect: only start polling when processing starts
-    useEffect(() => {
-        if (!processingState.isProcessing || !processingState.documentId) return
-
-        startPolling(processingState.documentId, processingState.fileName, processingState.jobId)
-
-        return () => {
-            const interval = pollIntervalsRef.current.get(processingState.documentId)
-            if (interval) {
-                clearInterval(interval)
-                pollIntervalsRef.current.delete(processingState.documentId)
-            }
-        }
-    }, [processingState.isProcessing, processingState.documentId])
-
-    // ✅ Cleanup all intervals on component unmount
-    useEffect(() => {
-        return () => {
-            pollIntervalsRef.current.forEach((interval) => {
-                clearInterval(interval)
-            })
-            pollIntervalsRef.current.clear()
-        }
-    }, [])
 
     if (isLoading || !user) {
         return (
@@ -300,6 +189,17 @@ export default function HomePage() {
 
     const handleUploadSuccess = (document: any) => {
         if (document.status === "processing") {
+            const docId = document.id || document.jobId
+            
+            // Subscribe to Socket.IO updates
+            if (socketRef.current?.connected) {
+                socketRef.current.emit("subscribe-document", { docId })
+            } else {
+                socketRef.current?.once("connect", () => {
+                    socketRef.current?.emit("subscribe-document", { docId })
+                })
+            }
+
             setProcessingState({
                 isProcessing: true,
                 fileName: document.fileName,

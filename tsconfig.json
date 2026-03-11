@@ -12,11 +12,14 @@
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "node", // Change to 'nodenext' for better ESM support
+    "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "types": [
+      "node"
+    ],
     "plugins": [
       {
         "name": "next"
@@ -25,7 +28,7 @@
     "paths": {
       "@/*": [
         "./*"
-      ] // Add this for alias resolution (e.g., '@/lib/db')
+      ]
     }
   },
   "include": [
@@ -33,7 +36,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "build/types/**/*.ts"
+    "build/types/**/*.ts",
+    "server.ts"
   ],
   "exclude": [
     "node_modules"

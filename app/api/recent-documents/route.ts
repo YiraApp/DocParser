@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server"
+﻿import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/db"
 import { getSessionUser } from "@/lib/auth-server"
 
@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
 
         const db = await getDatabase()
         const jobCollection = db.collection("job_ids")
+        const webhookCollection = db.collection("webhook_responses")
 
         // Build filter: admins can filter, users see only their own
         let dbFilter: any = sessionUser.isAdmin ? {} : { user_email: sessionUser.email }
@@ -39,7 +40,6 @@ export async function GET(request: NextRequest) {
                 dbFilter.user_email = { $regex: filterEmail, $options: "i" }
             }
             if (filterUser) {
-                // Filter directly by user_name field stored in job_ids
                 dbFilter.user_name = { $regex: filterUser, $options: "i" }
             }
             if (filterName) {
@@ -54,24 +54,61 @@ export async function GET(request: NextRequest) {
         const skip = (page - 1) * limit
         const totalPages = Math.ceil(totalCount / limit)
 
-        // Fetch paginated documents
-        const documents = await jobCollection
-            .find(dbFilter)
-            .sort({ created_at: -1 })
-            .skip(skip)
-            .limit(limit)
+        // ✅ OPTIMIZED: Use aggregation to join with webhook collection
+        const jobRecords = await jobCollection
+            .aggregate([
+                { $match: dbFilter },
+                { $sort: { created_at: -1 } },
+                { $skip: skip },
+                { $limit: limit },
+                // ✅ Left join with webhook_responses collection
+                {
+                    $lookup: {
+                        from: "webhook_responses",
+                        localField: "job_id",
+                        foreignField: "job_id",
+                        as: "webhook",
+                    },
+                },
+                // ✅ Unwind the webhook array (will be null if no match)
+                {
+                    $unwind: {
+                        path: "$webhook",
+                        preserveNullAndEmptyArrays: true,
+                    },
+                },
+                // ✅ Project the final shape
+                {
+                    $project: {
+                        id: "$job_id",
+                        job_id: 1,
+                        file_name: 1,
+                        created_at: 1,
+                        user_email: 1,
+                        user_name: 1,
+                        parsed_data: { $ifNull: ["$webhook.parsed_data", "$parsed_data"] },
+                        status: { $ifNull: ["$webhook.status", "$status"] },
+                    },
+                },
+            ])
             .toArray()
 
-        const formattedDocuments = documents.map((doc: any) => ({
-            id: doc.job_id || doc._id?.toString(),
-            job_id: doc.job_id,
-            file_name: doc.file_name || "Unknown Document",
-            created_at: doc.created_at || new Date().toISOString(),
-            structured_data: doc.parsed_data || doc.structured_data || {},
-            user_email: doc.user_email,
-            user_name: doc.user_name || doc.user_email,
-            status: doc.status || "processing",
-        }))
+        // ✅ Filter out pending/processing documents
+        const formattedDocuments = jobRecords
+            .filter(doc => doc.status !== "pending" && doc.status !== "processing")
+            .map((doc: any) => ({
+                id: doc.id,
+                job_id: doc.job_id,
+                file_name: doc.file_name || "Unknown Document",
+                created_at: doc.created_at || new Date().toISOString(),
+                structured_data: {
+                    ...(doc.parsed_data || {}),
+                    rawParsedData: doc.parsed_data || {},
+                },
+                user_email: doc.user_email,
+                user_name: doc.user_name || doc.user_email,
+                status: doc.status,
+            }))
 
         return NextResponse.json({
             success: true,
