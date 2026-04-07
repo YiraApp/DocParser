@@ -6,7 +6,7 @@ name: Build and deploy Node.js app to Azure Web App - Medsense-sandbox
 on:
   push:
     branches:
-      - Medsense07-04-2026
+      - Medsense17-02-2026
   workflow_dispatch:
 
 jobs:
