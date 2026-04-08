@@ -30,7 +30,6 @@ interface HomeSearchPanelProps {
     onClose: () => void
 }
 
-/* ---------------- TRANSFORM DOC (SYNC) ---------------- */
 function transformDocument(doc: Document): any {
     const fields: any[] = []
 
