@@ -343,7 +343,7 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
                     const data = await response.json()
                     const documents = data.documents || []
 
-                    // Find documents that are marked as pending
+                    // Find documents that are marked as pendings
                     const pendingDocs = documents.filter((doc: HistoryDocument) => doc.status === 'pending')
 
                     console.log(`[SIDEBAR] Found ${pendingDocs.length} pending documents on init`)
