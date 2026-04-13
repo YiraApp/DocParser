@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
             : 'unknown'
         
         // Build external API URL with webhook URL as query parameter
-        const baseUrl = 'https://api.yira.ai/v1/tenants/testing-id-1-1ae6/projects/bd760a58-2d44-4089-b471-cc046ea0a70d/reports'
+        const baseUrl = process.env.YIRA_API_URL || 'https://medsenseprod.azurewebsites.net/api/v1/tenants/testing-id-1-1ae6/projects/bd760a58-2d44-4089-b471-cc046ea0a70d/reports'
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://sandbox.yira.ai'
         const webhookUrl = `${appUrl}/api/webhook`
 
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers:
              {
-                'X-API-Key': 'sk_testing-id-1-1ae6_yGFKm0V8UDvI8a1TYB9P08-nil7ZZBtU',
+                'X-API-Key': process.env.YIRA_API_KEY || 'sk_testing-id-1-1ae6_yGFKm0V8UDvI8a1TYB9P08-nil7ZZBtU',
             },
             body: externalFormData,
         })
