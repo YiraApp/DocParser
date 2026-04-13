@@ -52,5 +52,4 @@ jobs:
           app-name: 'medsenseclient'
           slot-name: 'Production'
           package: .
-
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_73F3CFA5A609455495092A17E1FC9BD9 }}
