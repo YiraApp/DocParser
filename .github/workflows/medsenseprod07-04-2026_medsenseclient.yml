@@ -1,7 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy Node.js app to Azure Web App - medsenseclient
+name: Build and deploy Node.js app to Azure Web App - Medsense-sandbox
 
 on:
   push:
@@ -13,11 +13,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read #This is required for actions/checkout/
+      contents: read #This is required for actions/checkout
 
     steps:
       - uses: actions/checkout@v4
-
+        
       - name: Set up Node.js version
         uses: actions/setup-node@v3
         with:
@@ -25,7 +25,7 @@ jobs:
 
       - name: npm install, build, and test
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npm run build --if-present
           npm run test --if-present
 
@@ -49,7 +49,7 @@ jobs:
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'medsenseclient'
+          app-name: 'Medsense-sandbox'
           slot-name: 'Production'
           package: .
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_FF7D93D7C014431BA228A5E4310FA6C9 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_73F3CFA5A609455495092A17E1FC9BD9 }}
