@@ -52,5 +52,10 @@ jobs:
           app-name: 'Medsense-sandbox'
           slot-name: 'Production'
           package: .
-
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_73F3CFA5A609455495092A17E1FC9BD9 }}
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DB_NAME: ${{ secrets.MONGODB_DB_NAME }}
+          YIRA_API_URL: ${{ secrets.YIRA_API_URL }}
+          YIRA_API_KEY: ${{ secrets.YIRA_API_KEY }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}

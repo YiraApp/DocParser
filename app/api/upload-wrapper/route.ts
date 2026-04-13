@@ -4,48 +4,72 @@ import { getDatabase } from '@/lib/db'
 export async function POST(req: NextRequest) {
     try {
         const formData = await req.formData()
+        
+        // Validate FormData
+        if (!formData.has('file')) {
+            return NextResponse.json(
+                { error: 'No file provided' },
+                { status: 400 }
+            )
+        }
+
         const externalFormData = new FormData()
-        // Forward files and other fields to external API
         formData.forEach((value, key) => {
             externalFormData.append(key, value)
         })
-        // Get user info from headers or session
+
         const userEmail = req.headers.get('x-user-email') || 'anonymous'
         const userId = req.headers.get('x-user-id') || 'anonymous'
         const userRole = req.headers.get('x-user-role') || 'user'
         const fileName = formData.get('file') instanceof File
             ? (formData.get('file') as File).name
             : 'unknown'
-        
-        // Build external API URL with webhook URL as query parameter
-        const baseUrl = process.env.YIRA_API_URL || 'https://medsenseprod.azurewebsites.net/api/v1/tenants/testing-id-1-1ae6/projects/bd760a58-2d44-4089-b471-cc046ea0a70d/reports'
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://sandbox.yira.ai'
-        const webhookUrl = `${appUrl}/api/webhook`
 
+        // Validate environment variables
+        const baseUrl = process.env.YIRA_API_URL
+        const apiKey = process.env.YIRA_API_KEY
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL
+
+        if (!baseUrl || !apiKey || !appUrl) {
+            console.error('[UPLOAD] Missing environment variables')
+            return NextResponse.json(
+                { error: 'Server configuration error' },
+                { status: 500 }
+            )
+        }
+
+        const webhookUrl = `${appUrl}/api/webhook`
         const externalApiUrl = `${baseUrl}?webhook_url=${encodeURIComponent(webhookUrl)}`
+
         const externalResponse = await fetch(externalApiUrl, {
             method: 'POST',
-            headers:
-             {
-                'X-API-Key': process.env.YIRA_API_KEY || 'sk_testing-id-1-1ae6_yGFKm0V8UDvI8a1TYB9P08-nil7ZZBtU',
+            headers: {
+                'X-API-Key': apiKey,
             },
             body: externalFormData,
         })
+
         if (!externalResponse.ok) {
-            const errorData = await externalResponse.json()
+            let errorData: unknown
+            try {
+                errorData = await externalResponse.json()
+            } catch {
+                errorData = await externalResponse.text()
+            }
+            console.error('[UPLOAD] External API error:', errorData)
             return NextResponse.json(
-                { error: errorData.error || 'External upload failed' },
+                { error: errorData instanceof Object && 'error' in errorData ? (errorData as { error: string }).error : 'External upload failed' },
                 { status: externalResponse.status }
             )
         }
+
         const externalData = await externalResponse.json()
-        
-        // Connect to MongoDB and store job_id with user info
+
+        // Connect to MongoDB and store job_id
         const db = await getDatabase()
         const jobCollection = db.collection('job_ids')
         const usersCollection = db.collection('users')
 
-        // Fetch user name from users table
         let userName = 'anonymous'
         if (userEmail !== 'anonymous') {
             const user = await usersCollection.findOne({ email: userEmail })
@@ -65,21 +89,22 @@ export async function POST(req: NextRequest) {
             user_name: userName,
             user_role: userRole,
             file_name: fileName,
-            patient_name: null, // Will be updated when webhook arrives
+            patient_name: null,
             status: 'pending',
             parsed_data: null,
             created_at: new Date(),
             updated_at: new Date(),
         }
+
         const result = await jobCollection.insertOne(jobRecord)
-        console.log('[UPLOAD] Stored job record with user_name:', userName, 'ID:', result.insertedId)
-        // Return the external response data with id as job_id
+        console.log('[UPLOAD] Stored job record - ID:', result.insertedId)
+
         return NextResponse.json({
             ...externalData,
-            id: externalData.job_id,  // Use job_id as consistent id
+            id: externalData.job_id,
         })
     } catch (error) {
-        console.error('[UPLOAD] Error:', error)
+        console.error('[UPLOAD] Error:', error instanceof Error ? error.message : error)
         return NextResponse.json(
             { error: 'Internal server error' },
             { status: 500 }
