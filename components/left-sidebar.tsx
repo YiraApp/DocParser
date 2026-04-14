@@ -539,7 +539,11 @@ export function LeftSidebar({ onUploadSuccess, onHistorySelect, onHistoryClickSt
 
             await fetchDocuments(currentPageRef.current, true)
             startPolling(data.id)
-            onUploadSuccess(processingDocument)
+            // ✅ ONLY call onUploadSuccess if no document is currently open
+            // This prevents new uploads from forcing the view to change
+            if (!currentlyOpenedDocId) {
+                onUploadSuccess(processingDocument)
+            }
         } catch (error) {
             alert(error instanceof Error ? error.message : "Failed to upload. Please try again.")
             setProgressMessage("")
