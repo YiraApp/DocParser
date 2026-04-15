@@ -426,6 +426,8 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
     const currentIdRef = useRef<string | null>(null)
     const abortControllerRef = useRef<AbortController | null>(null)
 
+    // Find this useEffect (around line 143-196) and REPLACE it with:
+
     useEffect(() => {
         // If initialDocument is provided, use it and don't fetch
         if (initialDocument) {
@@ -445,9 +447,9 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             return
         }
 
-        // If we already fetched this exact ID, skip to prevent duplicate fetch
+        // ✅ FIXED: Only fetch if this is a different document
         if (fetchInitiatedRef.current && currentIdRef.current === documentId) {
-            console.log(`[ResultsView] Skipping duplicate fetch for ID: ${documentId}`)
+            console.log(`[ResultsView] Document already loaded for ID: ${documentId}`)
             return
         }
 
@@ -470,7 +472,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                 setError(null)
 
                 console.log(`[ResultsView] Fetching document: ${documentId}`)
-                
+
                 const response = await fetch(`/api/parse-document?id=${documentId}`, {
                     signal: abortController.signal
                 })
@@ -503,7 +505,6 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             }
         }
     }, [searchParams?.get("id"), initialDocument])
-
     const handleLanguageChange = async (language: string) => {
         // Stop any playing audio when language changes
         if (currentAudio) {
@@ -793,7 +794,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
             return null;
         }
 
-        const colorScheme = testType === 'ecg' 
+        const colorScheme = testType === 'ecg'
             ? { border: 'border-blue-500/20', bg: 'bg-blue-500/5', accent: 'text-blue-600' }
             : { border: 'border-purple-500/20', bg: 'bg-purple-500/5', accent: 'text-purple-600' };
 
@@ -1854,7 +1855,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                                                 {medication.replace(/^\d+\.\s*/, "")}
                                                             </p>
                                                         </div>
-                                                   ))}
+                                                    ))}
                                                 </div>
                                             </div>
                                         )
@@ -2190,7 +2191,7 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                                             </Card>
                                         )}
 
-                                  
+
                                         {/* TMT Analysis Section */}
                                         {fraudDetection.tmt && (
                                             <Card className="border border-purple-500/20 bg-purple-500/5">
@@ -2298,8 +2299,8 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                     )}
                 </TabsContent>
                 <TabsContent value="raw">
-                        {/* Display raw webhook parsed data */}
-                        {document?.structuredData?.rawParsedData ? (
+                    {/* Display raw webhook parsed data */}
+                    {document?.structuredData?.rawParsedData ? (
                         <Card className="border border-border/50">
                             <div className="p-4">
                                 <div className="flex items-center gap-2 mb-3">
@@ -2315,9 +2316,9 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                             </div>
                         </Card>
 
-                        ) : null}
+                    ) : null}
 
-                        {/* Display structured data */}
+                    {/* Display structured data */}
                     {/* Bind billing and other fields to raw as they are miscellaneous */}
                     {categorizedFields.billing.length > 0 && (
                         <Card className="border border-emerald-500/20 bg-emerald-500/5 shadow-sm">
