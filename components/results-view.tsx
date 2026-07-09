@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 import { useEffect, useState, useRef } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
@@ -647,7 +647,69 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         if (selectedLanguage !== "en" && translatedRecommendations) {
             return translatedRecommendations
         }
-        return document?.healthRecommendations
+        if (document?.healthRecommendations) {
+            return document.healthRecommendations
+        }
+        // Fallback: normalise rawParsedData.recommendations into UI shape
+        const raw = document?.structuredData?.rawParsedData?.recommendations
+        if (raw && typeof raw === "object") {
+            const recommendations: any[] = []
+
+            if (raw.dietaryAdvice) {
+                recommendations.push({
+                    category: "Diet",
+                    priority: raw.dietaryAdvicePriority || raw.priority || null,
+                    recommendation: raw.dietaryAdvice,
+                })
+            }
+            if (raw.activityRestrictions) {
+                recommendations.push({
+                    category: "Activity",
+                    priority: raw.activityPriority || raw.priority || null,
+                    recommendation: raw.activityRestrictions,
+                })
+            }
+            if (raw.followUpInstructions) {
+                recommendations.push({
+                    category: "Follow-up",
+                    priority: raw.followUpPriority || raw.priority || null,
+                    recommendation: raw.followUpInstructions,
+                })
+            }
+            if (raw.followUpDate) {
+                recommendations.push({
+                    category: "Follow-up Date",
+                    priority: null,
+                    recommendation: `Scheduled follow-up: ${raw.followUpDate}`,
+                })
+            }
+            if (raw.specialInstructions) {
+                recommendations.push({
+                    category: "Special Instructions",
+                    priority: raw.specialPriority || raw.priority || null,
+                    recommendation: raw.specialInstructions,
+                })
+            }
+
+            // If no specific fields matched, surface the whole object as generic items
+            if (recommendations.length === 0) {
+                Object.entries(raw).forEach(([key, value]) => {
+                    if (typeof value === "string" && value.trim()) {
+                        recommendations.push({
+                            category: key,
+                            priority: (raw as any)[`${key}Priority`] || null,
+                            recommendation: value,
+                        })
+                    }
+                })
+            }
+
+
+            if (recommendations.length > 0) {
+                return { summary: null, recommendations, warnings: [], nextSteps: [] }
+            }
+        }
+        return null
     }
 
     const getConfidenceDisplay = (score: number | undefined) => {
@@ -1015,22 +1077,30 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
         }
     }
     const getCategoryIcon = (category: string) => {
-        switch (category) {
-            case "medication":
-                return <Pill className="w-3 h-3" />
-            case "lifestyle":
-                return <Activity className="w-3 h-3" />
-            case "followup":
-                return <Calendar className="w-3 h-3" />
-            case "monitoring":
-                return <Heart className="w-3 h-3" />
-            case "diet":
-                return <ClipboardList className="w-3 h-3" />
-            case "exercise":
-                return <TrendingUp className="w-3 h-3" />
-            default:
-                return <CheckCircle2 className="w-3 h-3" />
-        }
+        const cat = (category || "").toLowerCase()
+        if (cat.includes("medication") || cat.includes("medicine") || cat.includes("drug")) return <Pill className="w-4 h-4" />
+        if (cat.includes("lifestyle") || cat.includes("activity") || cat.includes("exercise")) return <Activity className="w-4 h-4" />
+        if (cat.includes("follow") || cat.includes("appointment")) return <Calendar className="w-4 h-4" />
+        if (cat.includes("monitor") || cat.includes("heart")) return <Heart className="w-4 h-4" />
+        if (cat.includes("diet") || cat.includes("nutrition") || cat.includes("food")) return <ClipboardList className="w-4 h-4" />
+        if (cat.includes("special") || cat.includes("instruction")) return <Sparkles className="w-4 h-4" />
+        if (cat.includes("exercise") || cat.includes("trend")) return <TrendingUp className="w-4 h-4" />
+        return <CheckCircle2 className="w-4 h-4" />
+    }
+
+    const getCategoryStyle = (category: string) => {
+        const cat = (category || "").toLowerCase()
+        if (cat.includes("diet") || cat.includes("nutrition") || cat.includes("food"))
+            return { border: "border-l-emerald-500", icon: "bg-emerald-500/10 text-emerald-600", badge: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30" }
+        if (cat.includes("activity") || cat.includes("exercise") || cat.includes("lifestyle"))
+            return { border: "border-l-blue-500", icon: "bg-blue-500/10 text-blue-600", badge: "bg-blue-500/10 text-blue-700 border-blue-500/30" }
+        if (cat.includes("special") || cat.includes("instruction"))
+            return { border: "border-l-violet-500", icon: "bg-violet-500/10 text-violet-600", badge: "bg-violet-500/10 text-violet-700 border-violet-500/30" }
+        if (cat.includes("medication") || cat.includes("medicine"))
+            return { border: "border-l-orange-500", icon: "bg-orange-500/10 text-orange-600", badge: "bg-orange-500/10 text-orange-700 border-orange-500/30" }
+        if (cat.includes("follow") || cat.includes("appointment"))
+            return { border: "border-l-cyan-500", icon: "bg-cyan-500/10 text-cyan-600", badge: "bg-cyan-500/10 text-cyan-700 border-cyan-500/30" }
+        return { border: "border-l-primary", icon: "bg-primary/10 text-primary", badge: "bg-primary/10 text-primary border-primary/30" }
     }
     return (
         <div className="space-y-4">
@@ -1940,145 +2010,164 @@ export function ResultsView({ document: initialDocument }: ResultsViewProps) {
                         </Card>
                     )}
                 </TabsContent>
-                <TabsContent value="recommendations" className="space-y-3">
+                <TabsContent value="recommendations" className="space-y-4">
                     {displayRecommendations ? (
                         <>
                             {/* Summary */}
                             {displayRecommendations.summary && (
-                                <Card className="border border-primary/20 bg-primary/5">
-                                    <div className="p-4 space-y-2">
-                                        <div className="flex items-center gap-1">
-                                            <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
-                                                <Heart className="w-3 h-3 text-primary" />
-                                            </div>
-                                            <h3 className="font-semibold text-foreground">Health Overview</h3>
+                                <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/8 via-primary/4 to-transparent p-5">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-8 translate-x-8 pointer-events-none" />
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                                            <Heart className="w-4 h-4 text-primary" />
                                         </div>
-                                        <p className="text-sm text-foreground leading-relaxed">{displayRecommendations.summary}</p>
+                                        <div className="space-y-1">
+                                            <h3 className="font-semibold text-foreground text-sm">Health Overview</h3>
+                                            <p className="text-sm text-foreground/80 leading-relaxed">{displayRecommendations.summary}</p>
+                                        </div>
                                     </div>
-                                </Card>
+                                </div>
                             )}
-                            {/* Recommendations */}
+
+                            {/* Recommendations — one card per item */}
                             {displayRecommendations.recommendations && displayRecommendations.recommendations.length > 0 && (
-                                <Card className="border border-border/50">
-                                    <div className="p-4 space-y-3">
-                                        <div className="flex items-center gap-1">
-                                            <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center">
-                                                <CheckCircle2 className="w-3 h-3 text-accent" />
-                                            </div>
-                                            <h3 className="font-semibold text-foreground">Personalized Recommendations</h3>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {displayRecommendations.recommendations.map((rec: any, idx: number) => (
-                                                <div key={idx} className="p-3 bg-muted/30 rounded-md border border-border/30 space-y-1">
-                                                    <div className="flex items-start gap-2">
-                                                        <div className="p-1.5 rounded-md bg-background">{getCategoryIcon(rec.category)}</div>
-                                                        <div className="flex-1 space-y-1">
-                                                            <div className="flex items-center gap-1 flex-wrap">
-                                                                <Badge variant={getPriorityColor(rec.priority)}>{rec.priority} priority</Badge>
-                                                                <Badge variant="outline">{rec.category}</Badge>
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                                        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wide">Recommendations</h3>
+                                        <span className="ml-auto text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                            {displayRecommendations.recommendations.length} item{displayRecommendations.recommendations.length !== 1 ? "s" : ""}
+                                        </span>
+                                    </div>
+                                    {displayRecommendations.recommendations.map((rec: any, idx: number) => {
+                                        const style = getCategoryStyle(rec.category)
+                                        return (
+                                            <div
+                                                key={idx}
+                                                className={`relative rounded-xl border border-border/50 border-l-4 ${style.border} bg-card shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden`}
+                                            >
+                                                <div className="p-4">
+                                                    <div className="flex items-start gap-3">
+                                                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${style.icon}`}>
+                                                            {getCategoryIcon(rec.category)}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0 space-y-2">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full border ${style.badge}`}>
+                                                                    {rec.category}
+                                                                </span>
+                                                                {rec.priority && (
+                                                                    <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium ${
+                                                                        rec.priority === "high" ? "bg-red-500/10 text-red-600 border border-red-500/20" :
+                                                                        rec.priority === "medium" ? "bg-amber-500/10 text-amber-600 border border-amber-500/20" :
+                                                                        "bg-green-500/10 text-green-600 border border-green-500/20"
+                                                                    }`}>
+                                                                        {rec.priority} priority
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                             <p className="text-sm text-foreground leading-relaxed">{rec.recommendation}</p>
                                                             {rec.reason && (
-                                                                <p className="text-xs text-muted-foreground italic">Reason: {rec.reason}</p>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </Card>
-                            )}
-                            {/* Warnings */}
-                            {displayRecommendations.warnings && displayRecommendations.warnings.length > 0 && (
-                                <Card className="border border-destructive/50 bg-destructive/5">
-                                    <div className="p-4 space-y-3">
-                                        <div className="flex items-center gap-1">
-                                            <div className="w-6 h-6 rounded-md bg-destructive/10 flex items-center justify-center">
-                                                <AlertTriangle className="w-3 h-3 text-destructive" />
-                                            </div>
-                                            <h3 className="font-semibold text-foreground">Important Warnings</h3>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {displayRecommendations.warnings.map((warning: any, idx: number) => (
-                                                <div key={idx} className="p-3 bg-background rounded-md border border-destructive/30 space-y-1">
-                                                    <div className="flex items-start gap-2">
-                                                        <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-                                                        <div className="flex-1 space-y-1">
-                                                            <div className="flex items-center gap-1">
-                                                                <Badge variant={getSeverityColor(warning.severity)}>{warning.severity}</Badge>
-                                                            </div>
-                                                            <p className="text-sm text-foreground font-medium">{warning.warning}</p>
-                                                            {warning.action && (
-                                                                <p className="text-sm text-muted-foreground">
-                                                                    <strong>Action:</strong> {warning.action}
+                                                                <p className="text-xs text-muted-foreground italic border-l-2 border-border pl-2">
+                                                                    {rec.reason}
                                                                 </p>
                                                             )}
                                                         </div>
                                                     </div>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </Card>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
                             )}
-                            {/* Next Steps */}
+
+                            {/* Warnings */}
+                            {displayRecommendations.warnings && displayRecommendations.warnings.length > 0 && (
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <AlertTriangle className="w-4 h-4 text-destructive" />
+                                        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wide">Important Warnings</h3>
+                                    </div>
+                                    {displayRecommendations.warnings.map((warning: any, idx: number) => (
+                                        <div key={idx} className="rounded-xl border border-destructive/30 border-l-4 border-l-destructive bg-destructive/5 p-4 shadow-sm">
+                                            <div className="flex items-start gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-destructive/10 flex items-center justify-center shrink-0">
+                                                    <AlertCircle className="w-4 h-4 text-destructive" />
+                                                </div>
+                                                <div className="flex-1 space-y-1.5">
+                                                    {warning.severity && (
+                                                        <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20">
+                                                            {warning.severity}
+                                                        </span>
+                                                    )}
+                                                    <p className="text-sm text-foreground font-medium">{warning.warning}</p>
+                                                    {warning.action && (
+                                                        <p className="text-sm text-muted-foreground">
+                                                            <span className="font-semibold text-foreground">Action: </span>{warning.action}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Next Steps — timeline style */}
                             {displayRecommendations.nextSteps && displayRecommendations.nextSteps.length > 0 && (
-                                <Card className="border border-border/50">
-                                    <div className="p-4 space-y-3">
-                                        <div className="flex items-center gap-1">
-                                            <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center">
-                                                <ClipboardList className="w-3 h-3 text-primary" />
-                                            </div>
-                                            <h3 className="font-semibold text-foreground">Next Steps</h3>
+                                <div className="rounded-xl border border-border/50 bg-card shadow-sm p-4 space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+                                            <ClipboardList className="w-4 h-4 text-primary" />
                                         </div>
-                                        <ul className="space-y-1">
-                                            {displayRecommendations.nextSteps.map((step: string, idx: number) => (
-                                                <li key={idx} className="flex items-start gap-2 text-sm text-foreground">
-                                                    <CheckCircle2 className="w-3 h-3 text-primary shrink-0 mt-0.5" />
-                                                    <span>{step}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
+                                        <h3 className="text-sm font-semibold text-foreground">Follow-up & Next Steps</h3>
                                     </div>
-                                </Card>
+                                    <ul className="space-y-3 mt-1">
+                                        {displayRecommendations.nextSteps.map((step: string, idx: number) => (
+                                            <li key={idx} className="flex items-start gap-3">
+                                                <div className="mt-1.5 w-2.5 h-2.5 rounded-full border-2 border-primary bg-background shrink-0" />
+                                                <p className="text-sm text-foreground leading-relaxed">{step}</p>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
                             )}
-                            {/* Bind care instructions to recommendations as they are related to follow-up/advice */}
+
+                            {/* Care Instructions */}
                             {categorizedFields.care.length > 0 && (
-                                <Card className="border border-orange-500/20 bg-orange-500/5 shadow-sm">
-                                    <div className="p-4 space-y-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="p-1.5 rounded-md bg-orange-500/10">
-                                                <ClipboardList className="w-4 h-4 text-orange-600" />
-                                            </div>
-                                            <div className="flex-1">
-                                                <h3 className="text-base font-semibold text-foreground">Care Instructions</h3>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Dietary advice, follow-up, and discharge instructions
+                                <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 shadow-sm p-4 space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-xl bg-teal-500/10 flex items-center justify-center">
+                                            <ClipboardList className="w-4 h-4 text-teal-600" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-foreground">Care Instructions</h3>
+                                            <p className="text-xs text-muted-foreground">Dietary advice, follow-up &amp; discharge notes</p>
+                                        </div>
+                                    </div>
+                                    <div className="grid gap-3">
+                                        {categorizedFields.care.map((field, index) => (
+                                            <div key={index} className="rounded-lg bg-background border border-teal-500/15 p-3 space-y-1">
+                                                <p className="text-xs font-bold text-teal-600 uppercase tracking-wider">{field.label}</p>
+                                                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                                    {renderFieldValue(field.value)}
                                                 </p>
                                             </div>
-                                        </div>
-                                        <div className="grid gap-3">
-                                            {categorizedFields.care.map((field, index) => (
-                                                <div key={index} className="p-3 rounded-md bg-background border border-border/50 space-y-1">
-                                                    <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide">{field.label}</p>
-                                                    <p className="text-foreground leading-relaxed text-pretty whitespace-pre-wrap">
-                                                        {renderFieldValue(field.value)}
-                                                    </p>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        ))}
                                     </div>
-                                </Card>
+                                </div>
                             )}
                         </>
                     ) : (
-                        <Card className="border border-border/50">
-                            <div className="p-6 text-center">
-                                <Heart className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                                <p className="text-muted-foreground">No health recommendations available for this document.</p>
+                        <div className="flex flex-col items-center justify-center py-16 space-y-3 text-center">
+                            <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
+                                <Heart className="w-7 h-7 text-muted-foreground" />
                             </div>
-                        </Card>
+                            <p className="text-sm font-medium text-foreground">No Recommendations Available</p>
+                            <p className="text-xs text-muted-foreground max-w-xs">
+                                Health recommendations will appear here once the document has been analysed.
+                            </p>
+                        </div>
                     )}
                 </TabsContent>
                 <TabsContent value="medical-history" className="space-y-3">
